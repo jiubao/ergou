@@ -18,10 +18,12 @@
 在仓库根目录运行：
 
 ```powershell
-pwsh -File scripts/setup.ps1
+pnpm run setup
 pwsh -File scripts/install-ffmpeg.ps1
-pwsh -File scripts/start.ps1
+pnpm start
 ```
+
+`setup` 和 `doctor` 与 pnpm 自带命令重名，因此需要保留 `run`；其余项目脚本可以直接使用上面的简写。
 
 `install-ffmpeg.ps1` 从 yt-dlp 的 FFmpeg-Builds 发布页下载 Windows x64 工具，验证上游 SHA256 后解压到 `.tools/ffmpeg`。已有 FFmpeg 时，可以跳过该步骤，将所在目录加入 PATH，或设置 `ERGOU_FFMPEG_DIR`。下载的归档和许可证保留在 `.tools`，不进入 Git。
 
@@ -30,7 +32,7 @@ pwsh -File scripts/start.ps1
 ### 安装 Chrome 插件
 
 1. 打开 Chrome 的扩展管理页面 `chrome://extensions`，开启开发者模式。
-2. 点击“加载已解压的扩展程序”，选择仓库中的 `extension/.output/chrome-mv3` 目录。
+2. 点击“加载已解压的扩展程序”，选择仓库中的 `apps/extension/.output/chrome-mv3` 目录。旧版目录已经迁移，之前加载过插件时需要从这里重新加载。
 3. 固定 Ergou 图标，打开插件的连接设置，输入本地服务地址和同一个访问令牌。
 4. 打开普通网页并播放视频，等待插件图标出现数量提示，然后选择下载。
 
@@ -41,10 +43,10 @@ pwsh -File scripts/start.ps1
 ### 日常管理
 
 ```powershell
-pwsh -File scripts/start.ps1       # 启动或打开已有服务
-pwsh -File scripts/stop.ps1        # 停止由脚本启动的服务
-pwsh -File scripts/doctor.ps1      # 检查依赖与路径
-uv run --project services ergou token  # 在本机终端再次查看访问令牌
+pnpm start                                  # 启动或打开已有服务
+pnpm stop                                   # 停止由脚本启动的服务
+pnpm run doctor                             # 检查依赖与路径
+uv run --project apps/services ergou token  # 再次查看访问令牌
 ```
 
 默认数据目录为 `%LOCALAPPDATA%/Ergou`；数据库、令牌和日志在其中保存。视频默认保存在当前用户下载目录下的 `Ergou` 文件夹。修改保存目录只影响新任务。
@@ -58,36 +60,35 @@ uv run --project services ergou token  # 在本机终端再次查看访问令牌
 
 ## 开发
 
-三个应用子项目放在同一仓库中；`contracts` 是共享类型与客户端库，不是独立服务。
+三个应用位于 `apps`，共享代码位于 `packages`。`contracts` 是共享类型与客户端库，不是独立服务。
 
-| 目录            | 内容                                             |
-| --------------- | ------------------------------------------------ |
-| `extension`     | WXT / React / TypeScript / Chrome Manifest V3    |
-| `services`      | FastAPI / SQLAlchemy / Alembic / SQLite / yt-dlp |
-| `web`           | React / Vite / CSS Modules                       |
-| `contracts`     | OpenAPI、生成的 TypeScript 类型与 API 客户端     |
-| `scripts`       | 环境初始化、构建辅助、启动停止与依赖检查         |
-| `tests/browser` | Web 与插件端到端测试                             |
+| 目录                 | 内容                                             |
+| -------------------- | ------------------------------------------------ |
+| `apps/extension`     | WXT / React / TypeScript / Chrome Manifest V3    |
+| `apps/services`      | FastAPI / SQLAlchemy / Alembic / SQLite / yt-dlp |
+| `apps/web`           | React / Vite / CSS Modules                       |
+| `packages/contracts` | OpenAPI、生成的 TypeScript 类型与 API 客户端     |
+| `scripts`            | 环境初始化、构建辅助、启动停止与依赖检查         |
+| `tests/browser`      | Web 与插件端到端测试                             |
 
 在不同终端中运行：
 
 ```powershell
-uv run --project services ergou serve
+pnpm dev:services
 pnpm dev:web
 pnpm dev:extension
 ```
 
-Web 开发地址为 <http://127.0.0.1:5173>，API 和 WebSocket 代理至默认本地服务。正式运行由服务托管 `web/dist`。下载调试期间不要给服务开启自动重载；重载会中断执行任务。
+Web 开发地址为 <http://127.0.0.1:5173>，API 和 WebSocket 代理至默认本地服务。正式运行由服务托管 `apps/web/dist`。下载调试期间不要给服务开启自动重载；重载会中断执行任务。
 
 ```powershell
-pnpm contracts       # 导出 OpenAPI，再生成前端类型
-pnpm typecheck
-pnpm test
-uv run --project services pytest services/tests -q
-uv run --project services ruff check services
-pnpm build
+pnpm contracts        # 显式更新 OpenAPI 和前端类型
+pnpm contracts:check  # 只读检查已提交契约
+pnpm check            # 契约、类型和代码规范
+pnpm test             # 服务端及全部 TypeScript 单元测试
 pnpm exec playwright install chromium
-pnpm test:e2e
+pnpm test:e2e          # 构建并运行跨应用浏览器测试
+pnpm verify            # 完整检查、单元测试和端到端测试
 ```
 
 浏览器测试会在 `17894` 和 `17895` 端口启动隔离服务与媒体测试页面，在 `.local/browser-tests` 生成合成视频和任务数据。不会使用真实账号或真实下载目录。若已安装兼容的 Chromium，可通过 `ERGOU_CHROMIUM_EXE` 指定其完整可执行文件路径。

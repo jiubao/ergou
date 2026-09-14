@@ -21,20 +21,11 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
-  contracts:
-    devDependencies:
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.7(@types/node@26.5.1)(jiti@2.7.0)
-
-  extension:
+  apps/extension:
     dependencies:
       '@ergou/contracts':
         specifier: workspace:*
-        version: link:../contracts
+        version: link:../../packages/contracts
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -67,11 +58,11 @@ importers:
         specifier: ^0.20.0
         version: 0.20.27(@types/node@26.5.1)(jiti@2.7.0)(rollup@4.63.2)
 
-  web:
+  apps/web:
     dependencies:
       '@ergou/contracts':
         specifier: workspace:*
-        version: link:../contracts
+        version: link:../../packages/contracts
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.3.0)
@@ -97,6 +88,15 @@ importers:
       vite:
         specifier: ^6.3.0
         version: 6.4.3(@types/node@26.5.1)(jiti@2.7.0)
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@26.5.1)(jiti@2.7.0)
+
+  packages/contracts:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
       vitest:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@26.5.1)(jiti@2.7.0)

@@ -6,6 +6,8 @@ import shutil
 
 from platformdirs import user_data_path, user_downloads_path
 
+from .workspace import repository_root
+
 
 @dataclass
 class Config:
@@ -16,14 +18,14 @@ class Config:
 
     @classmethod
     def load(cls):
-        root = Path(__file__).resolve().parents[3]
+        root = repository_root()
         bundled_tools = root / ".tools" / "ffmpeg"
         return cls(
             data_dir=Path(os.environ.get("ERGOU_DATA_DIR", user_data_path("Ergou", appauthor=False))),
             port=int(os.environ.get("ERGOU_PORT", "17890")),
             ffmpeg_dir=os.environ.get("ERGOU_FFMPEG_DIR")
             or (str(bundled_tools) if bundled_tools.exists() else None),
-            web_dir=Path(os.environ.get("ERGOU_WEB_DIR", root / "web" / "dist")),
+            web_dir=Path(os.environ.get("ERGOU_WEB_DIR", root / "apps" / "web" / "dist")),
         )
 
     def prepare(self):

@@ -15,8 +15,8 @@ test.beforeAll(async () => {
     viewport: { width: 1440, height: 1000 },
     executablePath: process.env.ERGOU_CHROMIUM_EXE || undefined,
     args: [
-      `--disable-extensions-except=${path.resolve('extension/.output/chrome-mv3')}`,
-      `--load-extension=${path.resolve('extension/.output/chrome-mv3')}`,
+      `--disable-extensions-except=${path.resolve('apps/extension/.output/chrome-mv3')}`,
+      `--load-extension=${path.resolve('apps/extension/.output/chrome-mv3')}`,
     ],
   });
   let [worker] = context.serviceWorkers();

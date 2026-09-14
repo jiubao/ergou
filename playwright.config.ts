@@ -7,7 +7,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { baseURL: 'http://127.0.0.1:17894', trace: 'retain-on-failure' },
   webServer: {
-    command: 'uv run --project services python services/tests/browser_server.py',
+    command: 'uv run --project apps/services python apps/services/tests/browser_server.py',
     url: 'http://127.0.0.1:17894/api/v1/health',
     timeout: 90_000,
     reuseExistingServer: false,

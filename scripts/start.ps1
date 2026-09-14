@@ -11,9 +11,9 @@ try {
         return
     }
 } catch { }
-$taskPython = Join-Path $taskRoot 'services\.venv\Scripts\python.exe'
+$taskPython = Join-Path $taskRoot 'apps\services\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $taskPython)) { throw 'Run scripts/setup.ps1 first.' }
-if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'web\dist\index.html'))) { throw 'Run pnpm build first.' }
+if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'apps\web\dist\index.html'))) { throw 'Run pnpm build first.' }
 $taskRunDir = Join-Path $taskRoot '.local'
 New-Item -ItemType Directory -Path $taskRunDir -Force | Out-Null
 $taskOut = Join-Path $taskRunDir 'service.stdout.log'

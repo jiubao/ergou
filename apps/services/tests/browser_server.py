@@ -3,7 +3,6 @@
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import os
-from pathlib import Path
 import threading
 from urllib.parse import urlsplit
 
@@ -13,8 +12,9 @@ from conftest import build_media
 from ergou.app import create_app
 from ergou.config import Config
 from ergou.db import Database
+from ergou.workspace import repository_root
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = repository_root()
 DATA = ROOT / ".local" / "browser-tests"
 MEDIA = DATA / "media"
 SERVICE_PORT = 17894

@@ -6,13 +6,23 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "setup": "pwsh -NoProfile -File scripts/setup.ps1",
+    "start": "pwsh -NoProfile -File scripts/start.ps1",
+    "stop": "pwsh -NoProfile -File scripts/stop.ps1",
+    "doctor": "pwsh -NoProfile -File scripts/doctor.ps1",
+    "dev:services": "uv run --project apps/services ergou serve",
     "dev:web": "pnpm --filter @ergou/web dev",
     "dev:extension": "pnpm --filter @ergou/extension dev",
     "build": "pnpm --filter @ergou/web build && pnpm --filter @ergou/extension build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter @ergou/contracts test && pnpm --filter @ergou/extension test && pnpm --filter @ergou/web test",
-    "test:e2e": "playwright test",
-    "contracts": "uv run --project services python -m ergou.export_schema && openapi-typescript contracts/openapi.json -o contracts/src/api.ts"
+    "lint": "uv run --project apps/services ruff check apps/services && pnpm exec prettier --check .",
+    "test:services": "uv run --project apps/services pytest apps/services/tests -q",
+    "test": "pnpm test:services && pnpm -r --if-present test",
+    "test:e2e": "pnpm build && playwright test",
+    "contracts": "uv run --project apps/services python -m ergou.export_schema && openapi-typescript packages/contracts/openapi.json -o packages/contracts/src/api.ts",
+    "contracts:check": "node scripts/contracts-check.mjs",
+    "check": "pnpm contracts:check && pnpm typecheck && pnpm lint",
+    "verify": "pnpm check && pnpm test && pnpm test:e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",

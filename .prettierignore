@@ -5,8 +5,8 @@ dist
 .local
 .tools
 pnpm-lock.yaml
-contracts/openapi.json
-contracts/src/api.ts
-services
+packages/contracts/openapi.json
+packages/contracts/src/api.ts
+apps/services
 test-results
 playwright-report
