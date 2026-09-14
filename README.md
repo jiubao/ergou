@@ -13,13 +13,13 @@
 
 ## 首次运行
 
-需要 Windows 10/11、Chrome、PowerShell 7、Node.js 24、pnpm 10、uv。uv 会为服务建立独立 Python 3.13 环境。
+需要 Windows 10/11、Chrome、系统自带 Windows PowerShell、Node.js 24、pnpm 10、uv。uv 会为服务建立独立 Python 3.13 环境。
 
 在仓库根目录运行：
 
 ```powershell
 pnpm run setup
-pwsh -File scripts/install-ffmpeg.ps1
+powershell.exe -ExecutionPolicy Bypass -File scripts/install-ffmpeg.ps1
 pnpm start
 ```
 

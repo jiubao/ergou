@@ -78,6 +78,20 @@ header {
 .icon:hover {
   background: #e7edde;
 }
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid #d9e2ce;
+  background: #fff;
+  color: #55704f;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.settings-toggle:hover {
+  background: #eaf0e3;
+}
 .status {
   display: flex;
   align-items: center;
@@ -246,6 +260,11 @@ header {
   font-size: 11px;
   margin-bottom: 12px;
   color: #778b69;
+}
+.settings h2 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #34523c;
 }
 input,
 select {

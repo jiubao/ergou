@@ -56,21 +56,25 @@ function Popup() {
       const settings = await chrome.storage.local.get(['service', 'token']);
       setService(settings.service || DEFAULT_SERVICE);
       setToken(settings.token || '');
+      const hasToken = Boolean(settings.token);
+      if (!hasToken) setOptions(true);
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       setTabId(tab?.id);
       if (tab?.id !== undefined) {
-        await chrome.tabs.sendMessage(tab.id, { type: 'scan' }).catch(() => {});
-        setState(await send<TabState>({ type: 'candidates', tabId: tab.id }));
+        try {
+          await chrome.tabs.sendMessage(tab.id, { type: 'scan' }).catch(() => {});
+          setState(await send<TabState>({ type: 'candidates', tabId: tab.id }));
+        } catch {
+          setState(null);
+        }
       }
-      if (!settings.token) {
-        setOptions(true);
-        return;
-      }
+      if (!hasToken) return;
       try {
         await api('settings');
         setConnected(true);
       } catch {
         setConnected(false);
+        setOptions(true);
       }
     })().catch((e) => setError(e.message));
     return () => {
@@ -153,8 +157,13 @@ function Popup() {
           </span>
           ergou<span className="dot">.</span>
         </div>
-        <button className="icon" aria-label="连接设置" onClick={() => setOptions(!options)}>
+        <button
+          className="settings-toggle"
+          aria-label={options ? '收起连接设置' : '打开连接设置'}
+          onClick={() => setOptions(!options)}
+        >
           <Settings2 size={17} />
+          {options ? '收起设置' : '连接设置'}
         </button>
       </header>
       <div className="status">
@@ -179,6 +188,7 @@ function Popup() {
             });
           }}
         >
+          <h2>连接本地服务</h2>
           <label>
             本地服务地址
             <input value={service} onChange={(e) => setService(e.target.value)} required />

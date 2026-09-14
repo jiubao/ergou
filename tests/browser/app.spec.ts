@@ -71,6 +71,18 @@ test('web resolution permits quality selection before downloading HLS', async ()
   await page.close();
 });
 
+test('extension shows connection fields before first use', async () => {
+  const worker = context.serviceWorkers().find((w) => w.url().includes(extensionId))!;
+  await worker.evaluate(async () => chrome.storage.local.remove(['service', 'token']));
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await expect(popup.getByRole('heading', { name: '连接本地服务' })).toBeVisible();
+  await expect(popup.getByLabel('本地服务地址')).toHaveValue('http://127.0.0.1:17890');
+  await expect(popup.getByLabel('访问令牌')).toBeVisible();
+  await expect(popup.getByRole('button', { name: '保存并连接' })).toBeVisible();
+  await popup.close();
+});
+
 test('extension discovers direct, dynamic, frame and manifest resources, then submits download', async () => {
   const watch = await context.newPage();
   await watch.goto(`${MEDIA}/watch.html`);

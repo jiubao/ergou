@@ -6,10 +6,10 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "setup": "pwsh -NoProfile -File scripts/setup.ps1",
-    "start": "pwsh -NoProfile -File scripts/start.ps1",
-    "stop": "pwsh -NoProfile -File scripts/stop.ps1",
-    "doctor": "pwsh -NoProfile -File scripts/doctor.ps1",
+    "setup": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "start": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/start.ps1",
+    "stop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "doctor": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/doctor.ps1",
     "dev:services": "uv run --project apps/services ergou serve",
     "dev:web": "pnpm --filter @ergou/web dev",
     "dev:extension": "pnpm --filter @ergou/extension dev",
