@@ -1,0 +1,28 @@
+{
+  "name": "@ergou/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt --browser chrome",
+    "build": "wxt build",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "test": "vitest run",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@ergou/contracts": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "lucide-react": "^0.468.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/chrome": "^0.0.287",
+    "@wxt-dev/module-react": "^1.1.0",
+    "wxt": "^0.20.0",
+    "vitest": "^3.2.0",
+    "typescript": "^5.9.0"
+  }
+}

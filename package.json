@@ -1,0 +1,23 @@
+{
+  "name": "ergou",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @ergou/web dev",
+    "dev:extension": "pnpm --filter @ergou/extension dev",
+    "build": "pnpm --filter @ergou/web build && pnpm --filter @ergou/extension build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @ergou/contracts test && pnpm --filter @ergou/extension test && pnpm --filter @ergou/web test",
+    "test:e2e": "playwright test",
+    "contracts": "uv run --project services python -m ergou.export_schema && openapi-typescript contracts/openapi.json -o contracts/src/api.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "openapi-typescript": "^7.10.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.0"
+  }
+}

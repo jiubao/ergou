@@ -1,0 +1,12 @@
+node_modules
+dist
+.output
+.wxt
+.local
+.tools
+pnpm-lock.yaml
+contracts/openapi.json
+contracts/src/api.ts
+services
+test-results
+playwright-report
