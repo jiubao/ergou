@@ -110,22 +110,21 @@ def test_invalid_https_certificate_requires_explicit_task_option(media_client, i
     assert compatible["allow_invalid_tls"] is True
 
 
-def test_sensitive_https_task_keeps_certificate_validation_by_default(
+def test_sensitive_https_task_uses_compatibility_by_default(
     media_client, invalid_https_media_server
 ):
     url = invalid_https_media_server + "/sample.mp4"
     context = {
         "cookies": [{"name": "session", "value": "valid", "domain": "127.0.0.1", "host_only": True}]
     }
-    strict = wait_task(media_client, create(media_client, url, context=context))
-    compatible = wait_task(
-        media_client,
-        create(media_client, url, context=context, allow_invalid_tls=True),
-    )
-    assert strict["status"] == "failed", strict
-    assert strict["error"]["code"] == "TLS_CERTIFICATE_ERROR", strict
-    assert strict["allow_invalid_tls"] is False
+    compatible = wait_task(media_client, create(media_client, url, context=context))
     assert compatible["status"] == "completed", compatible
+    assert compatible["allow_invalid_tls"] is True
+    deadline = time.monotonic() + 10
+    while compatible["tls_certificate_status"] == "checking" and time.monotonic() < deadline:
+        time.sleep(0.05)
+        compatible = media_client.get(f"/api/v1/tasks/{compatible['id']}").json()
+    assert compatible["tls_certificate_status"] == "invalid"
 
 
 @pytest.mark.parametrize("route", ["master.m3u8", "dash/index.mpd"])

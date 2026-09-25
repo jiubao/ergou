@@ -144,7 +144,7 @@ function Popup() {
       setFormat('');
       setResolution(null);
       prepared.current = await prepare(c);
-      const useInvalidTls = sameCandidate ? allowInvalidTls : !prepared.current.source.requires_session;
+      const useInvalidTls = sameCandidate ? allowInvalidTls : true;
       setAllowInvalidTls(useInvalidTls);
       let r = await api<Resolution>('resolve', {
         ...prepared.current,
@@ -344,7 +344,7 @@ function Popup() {
               />
               允许无效 HTTPS 证书
             </span>
-            <small>仅用于当前任务，包含关联媒体站点；开启后无法验证服务器身份。</small>
+            <small>默认开启并覆盖关联媒体站点；证书验证结果只作提示，不影响下载。</small>
           </label>
           {(!resolution || resolution.status === 'failed') && (
             <button className="secondary" disabled={busy} onClick={() => inspect(candidate)}>

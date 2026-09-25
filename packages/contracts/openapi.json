@@ -1167,9 +1167,22 @@
             "title": "Format Id"
           },
           "allow_invalid_tls": {
-            "default": false,
+            "default": true,
             "title": "Allow Invalid Tls",
             "type": "boolean"
+          },
+          "tls_certificate_status": {
+            "default": "unchecked",
+            "enum": [
+              "unchecked",
+              "checking",
+              "valid",
+              "invalid",
+              "unavailable",
+              "not_applicable"
+            ],
+            "title": "Tls Certificate Status",
+            "type": "string"
           },
           "height": {
             "anyOf": [

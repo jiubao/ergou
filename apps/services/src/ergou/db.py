@@ -8,6 +8,7 @@ from sqlalchemy import Boolean, Column, Integer, String, Text, create_engine, ev
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from .config import default_settings
+from .errors import error_info
 from .schemas import TaskView
 
 
@@ -28,7 +29,8 @@ class Task(Base):
     status = Column(String, nullable=False, index=True)
     quality = Column(String, nullable=False)
     format_id = Column(String)
-    allow_invalid_tls = Column(Boolean, nullable=False, default=False)
+    allow_invalid_tls = Column(Boolean, nullable=False, default=True)
+    tls_certificate_status = Column(String, nullable=False, default="unchecked")
     height = Column(Integer)
     downloaded_bytes = Column(Integer, nullable=False, default=0)
     total_bytes = Column(Integer)
@@ -112,6 +114,9 @@ class Database:
 
     @staticmethod
     def view(row, progress=None):
+        stored_error = json.loads(row.error_json) if row.error_json else None
+        if stored_error and stored_error.get("code") == "TLS_CERTIFICATE_ERROR":
+            stored_error = error_info(stored_error["code"])
         result = TaskView(
             id=row.id,
             title=row.title,
@@ -120,11 +125,12 @@ class Database:
             quality=row.quality,
             format_id=row.format_id,
             allow_invalid_tls=row.allow_invalid_tls,
+            tls_certificate_status=row.tls_certificate_status,
             downloaded_bytes=row.downloaded_bytes,
             height=row.height,
             total_bytes=row.total_bytes,
             output_path=row.output_path,
-            error=json.loads(row.error_json) if row.error_json else None,
+            error=stored_error,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

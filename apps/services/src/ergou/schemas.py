@@ -129,7 +129,10 @@ class TaskView(BaseModel):
     status: TaskState
     quality: str
     format_id: str | None
-    allow_invalid_tls: bool = False
+    allow_invalid_tls: bool = True
+    tls_certificate_status: Literal[
+        "unchecked", "checking", "valid", "invalid", "unavailable", "not_applicable"
+    ] = "unchecked"
     height: int | None = None
     downloaded_bytes: int = 0
     total_bytes: int | None = None

@@ -15,26 +15,14 @@ from .db import Database, Task, now
 from .errors import error_info
 from .process import WorkerProcess
 from .schemas import ErrorInfo, Resolution, ResolvedMedia
+from .tls import certificate_status
 
 log = logging.getLogger("ergou")
 TERMINAL = {"completed", "failed", "canceled", "interrupted"}
 
 
-def has_sensitive_session(source, context):
-    return bool(
-        source.requires_session
-        or (
-            context
-            and (
-                context.cookies
-                or any("authorization" in request.headers for request in context.requests)
-            )
-        )
-    )
-
-
-def effective_invalid_tls(value, source, context):
-    return value if value is not None else not has_sensitive_session(source, context)
+def effective_invalid_tls(value):
+    return value if value is not None else True
 
 
 class TaskError(Exception):
@@ -52,6 +40,7 @@ class Manager:
         self.running = {}
         self.resolutions = {}
         self.resolution_jobs = set()
+        self.tls_jobs = {}
         self.resolution_slots = asyncio.Semaphore(2)
         self.subscribers = set()
         self.stopping = False
@@ -65,13 +54,43 @@ class Manager:
         self.stopping = True
         self.scheduler.cancel()
         await asyncio.gather(self.scheduler, return_exceptions=True)
-        jobs = list(self.running.values()) + list(self.resolution_jobs)
+        jobs = list(self.running.values()) + list(self.resolution_jobs) + list(self.tls_jobs.values())
         for job in jobs:
             job.cancel()
         await asyncio.gather(*jobs, return_exceptions=True)
         self.db.recover()
         self.contexts.clear()
         self.db.engine.dispose()
+
+    def start_tls_diagnostic(self, task_id, url):
+        if previous := self.tls_jobs.pop(task_id, None):
+            previous.cancel()
+        initial = "checking" if url.lower().startswith("https://") else "not_applicable"
+        self.db.update(task_id, tls_certificate_status=initial)
+        if initial == "not_applicable":
+            return
+        job = asyncio.create_task(self.run_tls_diagnostic(task_id, url))
+        self.tls_jobs[task_id] = job
+
+        def finished(done):
+            if self.tls_jobs.get(task_id) is done:
+                self.tls_jobs.pop(task_id, None)
+
+        job.add_done_callback(finished)
+
+    async def run_tls_diagnostic(self, task_id, url):
+        try:
+            status = await certificate_status(url)
+            if self.db.get(task_id) is not None:
+                self.db.update(task_id, tls_certificate_status=status)
+                self.publish(task_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("task=%s TLS diagnostic failed", task_id)
+            if self.db.get(task_id) is not None:
+                self.db.update(task_id, tls_certificate_status="unavailable")
+                self.publish(task_id)
 
     def get(self, task_id):
         row = self.db.get(task_id)
@@ -109,9 +128,7 @@ class Manager:
             settings = self.db.settings()
             task_id = str(uuid.uuid4())
             source = request.source.model_dump()
-            allow_invalid_tls = effective_invalid_tls(
-                request.allow_invalid_tls, request.source, request.context
-            )
+            allow_invalid_tls = effective_invalid_tls(request.allow_invalid_tls)
             if request.context and (
                 request.context.cookies
                 or any("authorization" in context.headers for context in request.context.requests)
@@ -136,6 +153,7 @@ class Manager:
             session.commit()
         if request.context:
             self.contexts[task_id] = request.context.model_dump()
+        self.start_tls_diagnostic(task_id, source["url"])
         self.publish(task_id)
         self.wakeup.set()
         return self.get(task_id)
@@ -157,6 +175,9 @@ class Manager:
 
     async def delete(self, task_id, delete_file=False):
         row = self.db.get(task_id)
+        if diagnostic := self.tls_jobs.pop(task_id, None):
+            diagnostic.cancel()
+            await asyncio.gather(diagnostic, return_exceptions=True)
         if row is None:
             raise KeyError(task_id)
         if row.status not in TERMINAL:
@@ -196,7 +217,7 @@ class Manager:
             raise TaskError("TASK_NOT_RETRYABLE")
         source = request.source.model_dump() if request.source else json.loads(row.source_json)
         allow_invalid_tls = (
-            effective_invalid_tls(request.allow_invalid_tls, request.source, request.context)
+            effective_invalid_tls(request.allow_invalid_tls)
             if request.source
             else request.allow_invalid_tls
             if request.allow_invalid_tls is not None
@@ -208,7 +229,9 @@ class Manager:
         ):
             source["requires_session"] = True
         if source.get("requires_session") and not request.context:
-            raise TaskError("SESSION_REQUIRED")
+            # Retry the captured URL even after its ephemeral browser context has expired.
+            # Signed public URLs may still work; a truly protected source will return AUTH_REQUIRED.
+            self.contexts[task_id] = {}
         if request.context:
             self.contexts[task_id] = request.context.model_dump()
         self.progress.pop(task_id, None)
@@ -223,6 +246,7 @@ class Manager:
             output_path=None,
             height=None,
         )
+        self.start_tls_diagnostic(task_id, source["url"])
         self.publish(task_id)
         self.wakeup.set()
         return self.get(task_id)
@@ -251,9 +275,7 @@ class Manager:
                             "action": "resolve",
                             "source": request.source.model_dump(),
                             "context": request.context.model_dump() if request.context else {},
-                            "allow_invalid_tls": effective_invalid_tls(
-                                request.allow_invalid_tls, request.source, request.context
-                            ),
+                            "allow_invalid_tls": effective_invalid_tls(request.allow_invalid_tls),
                             "ffmpeg_dir": self.config.ffmpeg_dir,
                         }
                     )

@@ -50,6 +50,15 @@ const host = (url: string) => {
 const qualityName = (value: string) => (value === 'best' ? '最高可用画质' : `${value}p`);
 const taskQuality = (task: Task) => (task.height ? `${task.height}p` : `目标：${qualityName(task.quality)}`);
 const message = (error: unknown) => (error instanceof Error ? error.message : '操作失败，请重试');
+const tlsCertificateLabel = (status: Task['tls_certificate_status']) =>
+  ({
+    unchecked: '尚未检测',
+    checking: '正在检测…',
+    valid: '证书有效',
+    invalid: '验证失败（不影响兼容下载）',
+    unavailable: '无法检测（不影响兼容下载）',
+    not_applicable: 'HTTP 地址，无需验证',
+  })[status];
 const timeLabel = (seconds?: number | null) =>
   seconds == null
     ? '计算剩余时间…'
@@ -438,6 +447,7 @@ export function App() {
             ['状态', labels[detail.status]],
             ['清晰度', taskQuality(detail)],
             ['HTTPS 证书兼容', detail.allow_invalid_tls ? '已开启' : '关闭'],
+            ['HTTPS 证书验证', tlsCertificateLabel(detail.tls_certificate_status)],
             ['已下载', bytes(detail.downloaded_bytes)],
             ['文件路径', detail.output_path || '下载完成后显示'],
             ['创建时间', new Date(detail.created_at).toLocaleString()],
@@ -454,7 +464,7 @@ export function App() {
               {detail.error.action}
             </div>
           )}
-          {canRetry(detail.status) && !detail.source.requires_session && (
+          {canRetry(detail.status) && (
             <>
               <label className={s.checkOption}>
                 <span>
@@ -465,7 +475,7 @@ export function App() {
                   />
                   允许无效 HTTPS 证书
                 </span>
-                <small>仅用于当前任务，包含关联媒体站点；开启后无法验证服务器身份。</small>
+                <small>默认开启并覆盖关联媒体站点；证书验证结果只作提示，不会关闭兼容模式。</small>
               </label>
               <div className={s.modalActions}>
                 <button
@@ -505,7 +515,9 @@ export function App() {
             </button>
           </div>
           {canRetry(detail.status) && detail.source.requires_session && (
-            <p className={s.subtitle}>在原网页播放后，打开插件，选择「更新已有任务」并选择此任务。</p>
+            <p className={s.subtitle}>
+              可先直接重试捕获到的地址；若登录信息已经失效，再回到原网页通过插件更新来源。
+            </p>
           )}
         </Modal>
       )}
@@ -889,7 +901,7 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
           />
           允许无效 HTTPS 证书
         </span>
-        <small>仅用于当前任务，包含关联媒体站点；开启后无法验证服务器身份。</small>
+        <small>默认开启并覆盖关联媒体站点；证书验证会独立执行，结果不影响下载。</small>
       </label>
       {error && (
         <p className={s.errorText} role="alert">

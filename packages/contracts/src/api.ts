@@ -403,9 +403,15 @@ export interface components {
             format_id: string | null;
             /**
              * Allow Invalid Tls
-             * @default false
+             * @default true
              */
             allow_invalid_tls: boolean;
+            /**
+             * Tls Certificate Status
+             * @default unchecked
+             * @enum {string}
+             */
+            tls_certificate_status: "unchecked" | "checking" | "valid" | "invalid" | "unavailable" | "not_applicable";
             /**
              * Height
              * @default null

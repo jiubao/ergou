@@ -261,7 +261,7 @@ test('extension forwards only the selected task session to download a protected 
         allowInvalidTls: task?.allow_invalid_tls,
       };
     })
-    .toEqual({ status: 'completed', session: true, allowInvalidTls: false });
+    .toEqual({ status: 'completed', session: true, allowInvalidTls: true });
   await popup.close();
   await watch.close();
   await context.clearCookies();

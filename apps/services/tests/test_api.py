@@ -78,10 +78,10 @@ def test_invalid_tls_option_persists_and_resets_with_replaced_source(client):
             },
         },
     ).json()
-    assert sensitive["allow_invalid_tls"] is False
+    assert sensitive["allow_invalid_tls"] is True
 
 
-def test_invalid_tls_default_depends_on_sensitive_session(client):
+def test_invalid_tls_defaults_on_for_every_task(client):
     def create_task(suffix, **values):
         return client.post(
             "/api/v1/tasks",
@@ -98,7 +98,7 @@ def test_invalid_tls_default_depends_on_sensitive_session(client):
             {"url": "https://example.com/private.mp4", "headers": {"authorization": "Bearer secret"}}
         ]
     }
-    assert create_task("private", context=context)["allow_invalid_tls"] is False
+    assert create_task("private", context=context)["allow_invalid_tls"] is True
     marked = client.post(
         "/api/v1/tasks",
         json={
@@ -106,7 +106,7 @@ def test_invalid_tls_default_depends_on_sensitive_session(client):
             "source": {"url": "https://example.com/marked.mp4", "requires_session": True},
         },
     ).json()
-    assert marked["allow_invalid_tls"] is False
+    assert marked["allow_invalid_tls"] is True
     assert create_task("strict", allow_invalid_tls=False)["allow_invalid_tls"] is False
     assert create_task("override", context=context, allow_invalid_tls=True)["allow_invalid_tls"] is True
 
@@ -120,7 +120,7 @@ def test_certificate_errors_have_a_specific_action():
         assert classify_error(error) == "TLS_CERTIFICATE_ERROR"
 
 
-def test_existing_database_migrates_invalid_tls_option_to_disabled(tmp_path):
+def test_existing_database_migrates_invalid_tls_option_to_enabled(tmp_path):
     data_dir = tmp_path / "legacy-data"
     data_dir.mkdir()
     engine = create_engine("sqlite:///" + (data_dir / "ergou.sqlite3").as_posix())
@@ -153,7 +153,9 @@ def test_existing_database_migrates_invalid_tls_option_to_disabled(tmp_path):
 
     database = Database(data_dir)
     try:
-        assert database.view(database.get("legacy-task")).allow_invalid_tls is False
+        task = database.view(database.get("legacy-task"))
+        assert task.allow_invalid_tls is True
+        assert task.tls_certificate_status == "unchecked"
     finally:
         database.engine.dispose()
 
@@ -230,8 +232,8 @@ def test_settings_and_interrupted_tasks_survive_restart(config, tmp_path):
         assert task["status"] == "interrupted"
         assert task["downloaded_bytes"] == 123
         response = client.post("/api/v1/tasks/interrupted/retry", json={})
-        assert response.status_code == 409
-        assert response.json()["detail"]["code"] == "SESSION_REQUIRED"
+        assert response.status_code == 200
+        assert response.json()["allow_invalid_tls"] is True
 
 
 def test_websocket_auth_and_snapshot_ready(client, config):
