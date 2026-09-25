@@ -149,6 +149,11 @@ class TaskPage(BaseModel):
     total: int
 
 
+class PlaybackSession(BaseModel):
+    url: str
+    expires_at: str
+
+
 class Settings(StrictModel):
     download_dir: str
     quality: Literal["best", "1080", "720", "480"] = "best"

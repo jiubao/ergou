@@ -4,6 +4,7 @@ import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import os
 import shutil
+import subprocess
 import threading
 from urllib.parse import urlsplit
 
@@ -25,6 +26,27 @@ os.environ["ERGOU_DATA_DIR"] = str(DATA / "data")
 for generated in (DATA / "data", DATA / "downloads"):
     shutil.rmtree(generated, ignore_errors=True)
 build_media(MEDIA)
+subprocess.run(
+    [
+        Config.load().binary("ffmpeg"),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-stream_loop",
+        "3",
+        "-i",
+        str(MEDIA / "sample.mp4"),
+        "-t",
+        "24",
+        "-c",
+        "copy",
+        str(MEDIA / "playback.mp4"),
+    ],
+    check=True,
+    capture_output=True,
+    timeout=60,
+)
 
 WATCH = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>本地视频验证</title>
 <style>body{background:#eef1e7;color:#243c2a;font:16px sans-serif;padding:40px}video{width:480px;display:block;margin:20px 0}</style>
@@ -48,6 +70,12 @@ WATCH = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>本地
 class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *_):
         pass
+
+    def copyfile(self, source, outputfile):
+        try:
+            return super().copyfile(source, outputfile)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return None
 
     def do_GET(self):
         route = urlsplit(self.path).path

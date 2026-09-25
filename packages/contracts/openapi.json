@@ -430,6 +430,45 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/playback": {
+      "post": {
+        "summary": "Create Playback",
+        "operationId": "create_playback_api_v1_tasks__task_id__playback_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/open": {
       "post": {
         "summary": "Open File",
@@ -824,6 +863,24 @@
           "node"
         ],
         "title": "Health"
+      },
+      "PlaybackSession": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "expires_at": {
+            "type": "string",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "title": "PlaybackSession"
       },
       "Resolution": {
         "properties": {

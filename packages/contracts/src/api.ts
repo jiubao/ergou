@@ -142,6 +142,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/{task_id}/playback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Playback */
+        post: operations["create_playback_api_v1_tasks__task_id__playback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/{task_id}/open": {
         parameters: {
             query?: never;
@@ -288,6 +305,13 @@ export interface components {
             ffprobe: boolean;
             /** Node */
             node: boolean;
+        };
+        /** PlaybackSession */
+        PlaybackSession: {
+            /** Url */
+            url: string;
+            /** Expires At */
+            expires_at: string;
         };
         /** Resolution */
         Resolution: {
@@ -770,6 +794,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_playback_api_v1_tasks__task_id__playback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackSession"];
                 };
             };
             /** @description Validation Error */

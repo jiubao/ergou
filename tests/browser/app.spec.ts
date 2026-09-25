@@ -113,6 +113,113 @@ test('web resolution permits quality selection before downloading HLS', async ()
   await page.close();
 });
 
+test('web plays a local video, restores progress and explains unsupported media', async () => {
+  const sourceUrl = `${MEDIA}/playback.mp4?player-browser-test=1`;
+  const created = await context.request.post(`${SERVICE}/api/v1/tasks`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    data: {
+      request_id: crypto.randomUUID(),
+      source: { url: sourceUrl, title: '本地播放与进度验证', kind: 'direct' },
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const taskId = (await created.json()).id;
+  await expect
+    .poll(async () => {
+      const response = await context.request.get(`${SERVICE}/api/v1/tasks/${taskId}`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      });
+      const current = await response.json();
+      return current.status === 'completed' ? current : null;
+    })
+    .not.toBeNull();
+  const response = await context.request.get(`${SERVICE}/api/v1/tasks/${taskId}`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  const completed = await response.json();
+
+  const page = await context.newPage();
+  await page.goto(SERVICE);
+  if (await page.getByLabel('访问令牌').isVisible()) {
+    await page.getByLabel('访问令牌').fill(TOKEN);
+    await page.getByRole('button', { name: '连接工作空间' }).click();
+  }
+  const card = page.getByRole('article').filter({ hasText: '本地播放与进度验证' });
+  await card.getByRole('button', { name: '播放视频' }).click();
+  await expect(page).toHaveURL(new RegExp(`#\/play\/${taskId}$`));
+  const player = page.getByLabel('播放 本地播放与进度验证');
+  await expect(player).toBeVisible();
+  await expect.poll(() => player.evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
+  await player.evaluate(async (video: HTMLVideoElement) => {
+    video.currentTime = 7;
+    await new Promise<void>((resolve) => video.addEventListener('seeked', () => resolve(), { once: true }));
+    video.pause();
+  });
+  await expect
+    .poll(() =>
+      page.evaluate((id) => {
+        const value = JSON.parse(localStorage.getItem(`ergou.playback.${id}`) || 'null');
+        return value?.currentTime;
+      }, taskId),
+    )
+    .toBeGreaterThanOrEqual(6.5);
+
+  await page.reload();
+  await expect
+    .poll(() => player.evaluate((video: HTMLVideoElement) => video.currentTime))
+    .toBeGreaterThanOrEqual(6.5);
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: '下载管理', exact: true })).toBeVisible();
+  await card.getByRole('button', { name: '任务详情' }).click();
+  await expect(page.getByRole('dialog').getByRole('button', { name: '播放视频' })).toBeVisible();
+  await page.getByRole('button', { name: '关闭' }).click();
+
+  fs.writeFileSync(completed.output_path, 'not a supported media file');
+  await card.getByRole('button', { name: '播放视频' }).click();
+  await expect(page.getByRole('alert')).toContainText('当前浏览器无法播放此文件');
+  await expect(page.getByRole('button', { name: '系统播放器打开' })).toBeVisible();
+  await context.request.delete(`${SERVICE}/api/v1/tasks/${taskId}?delete_file=true`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  await page.close();
+});
+
+test('web plays a downloaded WebM file natively', async () => {
+  const sourceUrl = `${MEDIA}/sample.webm?webm-player-browser-test=1`;
+  const created = await context.request.post(`${SERVICE}/api/v1/tasks`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    data: {
+      request_id: crypto.randomUUID(),
+      source: { url: sourceUrl, title: 'WebM 本地播放验证', kind: 'direct' },
+    },
+  });
+  const taskId = (await created.json()).id;
+  await expect
+    .poll(async () => {
+      const response = await context.request.get(`${SERVICE}/api/v1/tasks/${taskId}`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      });
+      return (await response.json()).status;
+    })
+    .toBe('completed');
+
+  const page = await context.newPage();
+  await page.goto(SERVICE);
+  if (await page.getByLabel('访问令牌').isVisible()) {
+    await page.getByLabel('访问令牌').fill(TOKEN);
+    await page.getByRole('button', { name: '连接工作空间' }).click();
+  }
+  const card = page.getByRole('article').filter({ hasText: 'WebM 本地播放验证' });
+  await card.getByRole('button', { name: '播放视频' }).click();
+  const player = page.getByLabel('播放 WebM 本地播放验证');
+  await expect.poll(() => player.evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
+  expect(await player.evaluate((video: HTMLVideoElement) => video.error)).toBeNull();
+  await context.request.delete(`${SERVICE}/api/v1/tasks/${taskId}?delete_file=true`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  await page.close();
+});
+
 test('web deletion stops an active task before removing it', async () => {
   const page = await context.newPage();
   const sourceUrl = `${MEDIA}/slow.mp4?active-delete-browser-test=1`;

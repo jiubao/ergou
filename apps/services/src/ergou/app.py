@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import hmac
 import json
 import os
@@ -9,7 +10,7 @@ from typing import Literal
 import shutil
 import subprocess
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -21,6 +22,7 @@ from .manager import Manager, TaskError
 from .schemas import (
     CreateTask,
     Health,
+    PlaybackSession,
     Resolution,
     ResolveRequest,
     RetryTask,
@@ -56,7 +58,7 @@ def create_app(config=None):
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=allowed,
-        allow_methods=["GET", "POST", "PATCH"],
+        allow_methods=["GET", "HEAD", "POST", "PATCH", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
         allow_credentials=False,
     )
@@ -143,6 +145,47 @@ def create_app(config=None):
     @app.delete("/api/v1/tasks/{task_id}", dependencies=auth)
     async def delete_task(task_id: str, delete_file: bool = False):
         return await app.state.manager.delete(task_id, delete_file)
+
+    @app.post(
+        "/api/v1/tasks/{task_id}/playback",
+        response_model=PlaybackSession,
+        dependencies=auth,
+    )
+    async def create_playback(task_id: str, response: Response):
+        token, expires_at = app.state.manager.create_playback_session(task_id)
+        response.set_cookie(
+            "ergou_playback",
+            token,
+            max_age=24 * 60 * 60,
+            httponly=True,
+            samesite="strict",
+            path=f"/api/v1/playback/{task_id}",
+        )
+        return PlaybackSession(
+            url=f"/api/v1/playback/{task_id}",
+            expires_at=datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
+        )
+
+    media_types = {
+        ".mp4": "video/mp4",
+        ".m4v": "video/x-m4v",
+        ".webm": "video/webm",
+        ".ogv": "video/ogg",
+        ".ogg": "video/ogg",
+        ".mov": "video/quicktime",
+        ".mkv": "video/x-matroska",
+        ".ts": "video/mp2t",
+    }
+
+    @app.api_route("/api/v1/playback/{task_id}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def playback(task_id: str, request: Request):
+        path = app.state.manager.playback_file(task_id, request.cookies.get("ergou_playback"))
+        return FileResponse(
+            path,
+            media_type=media_types.get(path.suffix.lower(), "application/octet-stream"),
+            filename=path.name,
+            content_disposition_type="inline",
+        )
 
     def local_file(task_id):
         task = app.state.manager.get(task_id)

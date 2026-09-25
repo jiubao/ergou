@@ -597,6 +597,60 @@
   color: #8b876f;
   line-height: 1.6;
 }
+.playerPage {
+  max-width: 1180px;
+}
+.playerToolbar,
+.playerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.playerToolbar {
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+.playerTitle {
+  margin-bottom: 18px;
+}
+.playerTitle h2 {
+  color: #273f2e;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.playerTitle p {
+  color: #86927f;
+  font-size: 12px;
+  margin-top: 7px;
+}
+.playerFrame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 13px;
+  overflow: hidden;
+  background: #101712;
+  box-shadow: 0 16px 48px #17291e1c;
+}
+.playerFrame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  object-fit: contain;
+}
+.playerPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #a8b8aa;
+  font-size: 13px;
+}
 .spin {
   animation: rotate 1.4s linear infinite;
 }
@@ -698,5 +752,15 @@
   .connectCard {
     width: calc(100vw - 36px);
     padding: 30px;
+  }
+  .playerToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .playerActions {
+    flex-wrap: wrap;
+  }
+  .playerActions > button {
+    flex: 1;
   }
 }

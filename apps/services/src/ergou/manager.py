@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import secrets
 import shutil
 import time
 import uuid
@@ -41,6 +42,7 @@ class Manager:
         self.resolutions = {}
         self.resolution_jobs = set()
         self.tls_jobs = {}
+        self.playback_sessions = {}
         self.resolution_slots = asyncio.Semaphore(2)
         self.subscribers = set()
         self.stopping = False
@@ -60,7 +62,48 @@ class Manager:
         await asyncio.gather(*jobs, return_exceptions=True)
         self.db.recover()
         self.contexts.clear()
+        self.playback_sessions.clear()
         self.db.engine.dispose()
+
+    def playable_file(self, task_id):
+        row = self.db.get(task_id)
+        if row is None:
+            raise KeyError(task_id)
+        if row.status != "completed" or not row.output_path:
+            raise TaskError("PLAYBACK_NOT_READY")
+        path = Path(row.output_path)
+        if not path.is_file():
+            raise TaskError("PLAYBACK_FILE_MISSING", 404)
+        return path
+
+    def create_playback_session(self, task_id):
+        self.playable_file(task_id)
+        stamp = time.time()
+        self.playback_sessions = {
+            token: session
+            for token, session in self.playback_sessions.items()
+            if session["expires_at"] > stamp and session["task_id"] != task_id
+        }
+        token = secrets.token_urlsafe(32)
+        expires_at = stamp + 24 * 60 * 60
+        self.playback_sessions[token] = {"task_id": task_id, "expires_at": expires_at}
+        return token, expires_at
+
+    def playback_file(self, task_id, token):
+        stamp = time.time()
+        session = self.playback_sessions.get(token or "")
+        if not session or session["expires_at"] <= stamp or session["task_id"] != task_id:
+            if session and session["expires_at"] <= stamp:
+                self.playback_sessions.pop(token, None)
+            raise TaskError("PLAYBACK_UNAUTHORIZED", 401)
+        return self.playable_file(task_id)
+
+    def revoke_playback(self, task_id):
+        self.playback_sessions = {
+            token: session
+            for token, session in self.playback_sessions.items()
+            if session["task_id"] != task_id
+        }
 
     def start_tls_diagnostic(self, task_id, url):
         if previous := self.tls_jobs.pop(task_id, None):
@@ -204,6 +247,7 @@ class Manager:
 
         self.contexts.pop(task_id, None)
         self.progress.pop(task_id, None)
+        self.revoke_playback(task_id)
         if not self.db.delete(task_id):
             raise KeyError(task_id)
         self.wakeup.set()

@@ -6,6 +6,7 @@ export type Task = components['schemas']['TaskView'];
 export type Resolution = components['schemas']['Resolution'];
 export type Settings = components['schemas']['Settings'];
 export type Health = components['schemas']['Health'];
+export type PlaybackSession = components['schemas']['PlaybackSession'];
 export type CreateTask = Omit<components['schemas']['CreateTask'], 'source' | 'allow_invalid_tls'> & {
   source: Source;
   allow_invalid_tls?: boolean;
@@ -78,6 +79,9 @@ export class ApiClient {
   }
   cancel(id: string) {
     return this.request<Task>(`/tasks/${encodeURIComponent(id)}/cancel`, 'POST');
+  }
+  createPlaybackSession(id: string) {
+    return this.request<PlaybackSession>(`/tasks/${encodeURIComponent(id)}/playback`, 'POST');
   }
   retry(id: string, body: { source?: Source; context?: SessionContext; allow_invalid_tls?: boolean } = {}) {
     return this.request<Task>(`/tasks/${encodeURIComponent(id)}/retry`, 'POST', body);
