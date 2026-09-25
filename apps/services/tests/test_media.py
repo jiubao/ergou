@@ -19,6 +19,16 @@ def create(client, url, **kwargs):
     return response.json()["id"]
 
 
+def resolve(client, url, **kwargs):
+    result = client.post("/api/v1/resolutions", json={"source": {"url": url}, **kwargs}).json()
+    for _ in range(200):
+        result = client.get("/api/v1/resolutions/" + result["id"]).json()
+        if result["status"] != "resolving":
+            return result
+        time.sleep(0.1)
+    raise AssertionError(f"Resolution timed out: {result}")
+
+
 @pytest.mark.parametrize(
     "route", ["sample.mp4", "sample.webm", "hls/index.m3u8", "master.m3u8", "dash/index.mpd", "stream"]
 )
@@ -72,6 +82,77 @@ def test_media_failure_is_actionable(media_client, media_server, route, code):
     task = wait_task(media_client, create(media_client, media_server[0] + "/" + route))
     assert task["status"] == "failed", task
     assert task["error"]["code"] == code, task
+
+
+def test_invalid_https_certificate_requires_explicit_task_option(media_client, invalid_https_media_server):
+    strict_resolution = resolve(
+        media_client,
+        invalid_https_media_server + "/sample.mp4",
+        allow_invalid_tls=False,
+    )
+    compatible_resolution = resolve(media_client, invalid_https_media_server + "/sample.mp4")
+    assert strict_resolution["status"] == "failed", strict_resolution
+    assert strict_resolution["error"]["code"] == "TLS_CERTIFICATE_ERROR", strict_resolution
+    assert compatible_resolution["status"] == "completed", compatible_resolution
+
+    strict_id = create(
+        media_client,
+        invalid_https_media_server + "/sample.mp4",
+        allow_invalid_tls=False,
+    )
+    compatible_id = create(media_client, invalid_https_media_server + "/sample.mp4")
+    strict = wait_task(media_client, strict_id)
+    compatible = wait_task(media_client, compatible_id)
+    assert strict["status"] == "failed", strict
+    assert strict["error"]["code"] == "TLS_CERTIFICATE_ERROR", strict
+    assert strict["allow_invalid_tls"] is False
+    assert compatible["status"] == "completed", compatible
+    assert compatible["allow_invalid_tls"] is True
+
+
+def test_sensitive_https_task_keeps_certificate_validation_by_default(
+    media_client, invalid_https_media_server
+):
+    url = invalid_https_media_server + "/sample.mp4"
+    context = {
+        "cookies": [{"name": "session", "value": "valid", "domain": "127.0.0.1", "host_only": True}]
+    }
+    strict = wait_task(media_client, create(media_client, url, context=context))
+    compatible = wait_task(
+        media_client,
+        create(media_client, url, context=context, allow_invalid_tls=True),
+    )
+    assert strict["status"] == "failed", strict
+    assert strict["error"]["code"] == "TLS_CERTIFICATE_ERROR", strict
+    assert strict["allow_invalid_tls"] is False
+    assert compatible["status"] == "completed", compatible
+
+
+@pytest.mark.parametrize("route", ["master.m3u8", "dash/index.mpd"])
+def test_invalid_tls_option_covers_manifests_fragments_and_tracks(
+    media_client, invalid_https_media_server, route
+):
+    task = wait_task(
+        media_client,
+        create(media_client, f"{invalid_https_media_server}/{route}", allow_invalid_tls=True),
+    )
+    assert task["status"] == "completed", task
+    probe = subprocess.run(
+        [
+            Config.load().binary("ffprobe"),
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "json",
+            task["output_path"],
+        ],
+        capture_output=True,
+        check=True,
+    )
+    stream_types = {stream["codec_type"] for stream in json.loads(probe.stdout)["streams"]}
+    assert {"video", "audio"} <= stream_types
 
 
 def test_missing_fragment_cannot_complete(media_client, media_server):
@@ -132,6 +213,63 @@ def test_concurrent_same_titles_do_not_overwrite_files(media_client, media_serve
     files = [Path(task["output_path"]) for task in tasks]
     assert files[0] != files[1]
     assert files[0].read_bytes() == files[1].read_bytes()
+
+
+def test_delete_task_keeps_or_removes_completed_file(media_client, media_server, config):
+    kept_id = create(media_client, media_server[0] + "/sample.mp4")
+    kept = wait_task(media_client, kept_id)
+    kept_path = Path(kept["output_path"])
+    assert media_client.delete(f"/api/v1/tasks/{kept_id}").json() == {"ok": True}
+    assert media_client.get(f"/api/v1/tasks/{kept_id}").status_code == 404
+    assert kept_path.is_file()
+    assert not (config.data_dir / "work" / kept_id).exists()
+
+    removed_id = create(media_client, media_server[0] + "/sample.mp4")
+    removed = wait_task(media_client, removed_id)
+    removed_path = Path(removed["output_path"])
+    assert media_client.delete(f"/api/v1/tasks/{removed_id}?delete_file=true").json() == {"ok": True}
+    assert media_client.get(f"/api/v1/tasks/{removed_id}").status_code == 404
+    assert not removed_path.exists()
+
+    missing_id = create(media_client, media_server[0] + "/sample.mp4")
+    missing = wait_task(media_client, missing_id)
+    Path(missing["output_path"]).unlink()
+    assert media_client.delete(f"/api/v1/tasks/{missing_id}?delete_file=true").json() == {"ok": True}
+    assert media_client.get(f"/api/v1/tasks/{missing_id}").status_code == 404
+
+
+def test_delete_active_task_stops_worker_and_releases_queue(media_client, media_server, config):
+    settings = media_client.get("/api/v1/settings").json()
+    settings["concurrency"] = 1
+    media_client.patch("/api/v1/settings", json=settings).raise_for_status()
+    active_id = create(media_client, media_server[0] + "/slow.mp4")
+    wait_task(media_client, active_id, {"resolving", "downloading"})
+    queued_id = create(media_client, media_server[0] + "/sample.mp4")
+
+    assert media_client.delete(f"/api/v1/tasks/{active_id}").json() == {"ok": True}
+    assert active_id not in media_client.app.state.manager.running
+    assert media_client.get(f"/api/v1/tasks/{active_id}").status_code == 404
+    assert not (config.data_dir / "work" / active_id).exists()
+    assert wait_task(media_client, queued_id)["status"] == "completed"
+
+
+def test_failed_output_deletion_preserves_task(media_client, media_server, monkeypatch):
+    task_id = create(media_client, media_server[0] + "/sample.mp4")
+    task = wait_task(media_client, task_id)
+    output = Path(task["output_path"])
+    original_unlink = Path.unlink
+
+    def fail_output(self, *args, **kwargs):
+        if self == output:
+            raise PermissionError("in use")
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_output)
+    response = media_client.delete(f"/api/v1/tasks/{task_id}?delete_file=true")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "TASK_DELETE_FAILED"
+    assert media_client.get(f"/api/v1/tasks/{task_id}").status_code == 200
+    assert output.exists()
 
 
 def test_authorization_not_forwarded_cross_origin(media_server):

@@ -140,6 +140,10 @@ def create_app(config=None):
     async def retry(task_id: str, request: RetryTask):
         return app.state.manager.retry(task_id, request)
 
+    @app.delete("/api/v1/tasks/{task_id}", dependencies=auth)
+    async def delete_task(task_id: str, delete_file: bool = False):
+        return await app.state.manager.delete(task_id, delete_file)
+
     def local_file(task_id):
         task = app.state.manager.get(task_id)
         if task.status != "completed" or not task.output_path:

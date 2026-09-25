@@ -322,6 +322,29 @@ select {
   color: #859973;
   margin: 12px 0;
 }
+.resolution .tls-option {
+  display: block;
+  padding: 10px;
+  border: 1px solid #e7dfc9;
+  border-radius: 6px;
+  background: #fffaf0;
+}
+.tls-option span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #665941;
+}
+.tls-option input {
+  width: auto;
+  margin: 0;
+}
+.tls-option small {
+  display: block;
+  margin-top: 7px;
+  color: #95866b;
+  line-height: 1.6;
+}
 .entry {
   display: flex;
   align-items: center;

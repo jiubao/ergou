@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import shutil
+import ssl
 import subprocess
 import threading
 import time
@@ -8,6 +9,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 import pytest
+import trustme
 from fastapi.testclient import TestClient
 
 from ergou.app import create_app
@@ -199,6 +201,28 @@ def media_server(media_dir):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}", requests
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture(scope="session")
+def invalid_https_media_server(media_dir):
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(media_dir), **kwargs)
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    ca = trustme.CA()
+    certificate = ca.issue_cert("127.0.0.1")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    certificate.configure_cert(context)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"https://127.0.0.1:{server.server_port}"
     server.shutdown()
     server.server_close()
 

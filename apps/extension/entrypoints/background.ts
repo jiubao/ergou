@@ -265,7 +265,8 @@ export default defineBackground(() => {
         const { operation, body, id } = msg;
         if (operation === 'health') return await client.health();
         if (operation === 'settings') return await client.settings();
-        if (operation === 'resolve') return await client.resolve(body.source, body.context);
+        if (operation === 'resolve')
+          return await client.resolve(body.source, body.context, body.allow_invalid_tls);
         if (operation === 'resolution') return await client.resolution(id);
         if (operation === 'create') return await client.create(body);
         if (operation === 'retry') return await client.retry(id, body);

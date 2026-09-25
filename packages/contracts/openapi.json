@@ -295,6 +295,51 @@
             }
           }
         }
+      },
+      "delete": {
+        "summary": "Delete Task",
+        "operationId": "delete_task_api_v1_tasks__task_id__delete",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "delete_file",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Delete File"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/tasks/{task_id}/cancel": {
@@ -584,6 +629,17 @@
               }
             ]
           },
+          "allow_invalid_tls": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Invalid Tls"
+          },
           "request_id": {
             "type": "string",
             "maxLength": 100,
@@ -826,6 +882,17 @@
                 "type": "null"
               }
             ]
+          },
+          "allow_invalid_tls": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Invalid Tls"
           }
         },
         "additionalProperties": false,
@@ -905,6 +972,17 @@
                 "type": "null"
               }
             ]
+          },
+          "allow_invalid_tls": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Invalid Tls"
           }
         },
         "additionalProperties": false,
@@ -1087,6 +1165,11 @@
               }
             ],
             "title": "Format Id"
+          },
+          "allow_invalid_tls": {
+            "default": false,
+            "title": "Allow Invalid Tls",
+            "type": "boolean"
           },
           "height": {
             "anyOf": [

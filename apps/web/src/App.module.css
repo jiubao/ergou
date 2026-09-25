@@ -144,6 +144,20 @@
   font-size: 13px;
   font-weight: 600;
 }
+.danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #d8a69a;
+  background: #fff7f4;
+  color: #a65343;
+  border-radius: 6px;
+  padding: 9px 14px;
+}
+.danger:hover {
+  background: #fce9e4;
+}
 .primary {
   background: #284c39;
   color: white;
@@ -557,6 +571,31 @@
   color: #a87253;
   line-height: 1.8;
   margin-top: 10px;
+}
+.checkOption {
+  display: block;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #e6dfca;
+  border-radius: 7px;
+  background: #fffbf1;
+  color: #5b624d;
+  font-size: 12px;
+}
+.checkOption span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.checkOption input {
+  width: auto;
+  margin: 0;
+}
+.checkOption small {
+  display: block;
+  margin-top: 7px;
+  color: #8b876f;
+  line-height: 1.6;
 }
 .spin {
   animation: rotate 1.4s linear infinite;

@@ -6,7 +6,10 @@ export type Task = components['schemas']['TaskView'];
 export type Resolution = components['schemas']['Resolution'];
 export type Settings = components['schemas']['Settings'];
 export type Health = components['schemas']['Health'];
-export type CreateTask = Omit<components['schemas']['CreateTask'], 'source'> & { source: Source };
+export type CreateTask = Omit<components['schemas']['CreateTask'], 'source' | 'allow_invalid_tls'> & {
+  source: Source;
+  allow_invalid_tls?: boolean;
+};
 export type TaskEvent = components['schemas']['TaskEvent'];
 export type TaskPage = components['schemas']['TaskPage'];
 
@@ -76,11 +79,15 @@ export class ApiClient {
   cancel(id: string) {
     return this.request<Task>(`/tasks/${encodeURIComponent(id)}/cancel`, 'POST');
   }
-  retry(id: string, body: { source?: Source; context?: SessionContext } = {}) {
+  retry(id: string, body: { source?: Source; context?: SessionContext; allow_invalid_tls?: boolean } = {}) {
     return this.request<Task>(`/tasks/${encodeURIComponent(id)}/retry`, 'POST', body);
   }
-  resolve(source: Source, context?: SessionContext) {
-    return this.request<Resolution>('/resolutions', 'POST', { source, context });
+  resolve(source: Source, context?: SessionContext, allowInvalidTls?: boolean) {
+    return this.request<Resolution>('/resolutions', 'POST', {
+      source,
+      context,
+      allow_invalid_tls: allowInvalidTls,
+    });
   }
   resolution(id: string) {
     return this.request<Resolution>(`/resolutions/${encodeURIComponent(id)}`);
@@ -93,5 +100,11 @@ export class ApiClient {
   }
   fileAction(id: string, action: 'open' | 'reveal') {
     return this.request(`/tasks/${encodeURIComponent(id)}/${action}`, 'POST');
+  }
+  deleteTask(id: string, deleteFile = false) {
+    return this.request<{ ok: boolean }>(
+      `/tasks/${encodeURIComponent(id)}?delete_file=${deleteFile}`,
+      'DELETE',
+    );
   }
 }

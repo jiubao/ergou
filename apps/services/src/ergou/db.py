@@ -4,7 +4,7 @@ import json
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import Column, Integer, String, Text, create_engine, event, select
+from sqlalchemy import Boolean, Column, Integer, String, Text, create_engine, event, select
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from .config import default_settings
@@ -28,6 +28,7 @@ class Task(Base):
     status = Column(String, nullable=False, index=True)
     quality = Column(String, nullable=False)
     format_id = Column(String)
+    allow_invalid_tls = Column(Boolean, nullable=False, default=False)
     height = Column(Integer)
     downloaded_bytes = Column(Integer, nullable=False, default=0)
     total_bytes = Column(Integer)
@@ -91,6 +92,15 @@ class Database:
             session.refresh(row)
             return row
 
+    def delete(self, task_id):
+        with Session(self.engine) as session:
+            row = session.get(Task, task_id)
+            if row is None:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+
     def recover(self):
         with Session(self.engine) as session:
             for row in session.scalars(
@@ -109,6 +119,7 @@ class Database:
             status=row.status,
             quality=row.quality,
             format_id=row.format_id,
+            allow_invalid_tls=row.allow_invalid_tls,
             downloaded_bytes=row.downloaded_bytes,
             height=row.height,
             total_bytes=row.total_bytes,

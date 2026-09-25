@@ -3,6 +3,7 @@
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import os
+import shutil
 import threading
 from urllib.parse import urlsplit
 
@@ -21,6 +22,8 @@ SERVICE_PORT = 17894
 MEDIA_PORT = 17895
 os.environ["ERGOU_PORT"] = str(SERVICE_PORT)
 os.environ["ERGOU_DATA_DIR"] = str(DATA / "data")
+for generated in (DATA / "data", DATA / "downloads"):
+    shutil.rmtree(generated, ignore_errors=True)
 build_media(MEDIA)
 
 WATCH = """<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>本地视频验证</title>

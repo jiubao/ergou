@@ -10,7 +10,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "httpx>=0.28,<1", "ruff>=0.11,<1"]
+dev = [
+  "pytest>=8,<10", "pytest-asyncio>=1,<2", "httpx>=0.28,<1", "ruff>=0.11,<1",
+  "trustme>=1.2,<2"
+]
 
 [project.scripts]
 ergou = "ergou.cli:main"

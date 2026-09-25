@@ -338,6 +338,7 @@ def run(payload):
         "windowsfilenames": True,
         "overwrites": False,
         "hls_prefer_native": True,
+        "nocheckcertificate": bool(payload.get("allow_invalid_tls", False)),
     }
     work = Path(payload.get("work_dir", "."))
     if action == "download":

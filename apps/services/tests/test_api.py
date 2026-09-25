@@ -1,11 +1,17 @@
 import json
+from pathlib import Path
 import uuid
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+import ergou.db as db_module
 from ergou.app import create_app
-from ergou.db import Task, now
+from ergou.db import Database, Task, now
+from ergou.errors import classify_error
 
 
 def test_authentication_and_origins(client):
@@ -33,6 +39,146 @@ def test_idempotent_creation_and_group_filter(client):
         )
         == 1
     )
+
+
+def test_invalid_tls_option_persists_and_resets_with_replaced_source(client):
+    request = {
+        "request_id": str(uuid.uuid4()),
+        "source": {"url": "https://example.com/video.mp4"},
+        "allow_invalid_tls": True,
+    }
+    task = client.post("/api/v1/tasks", json=request).json()
+    assert task["allow_invalid_tls"] is True
+
+    client.app.state.manager.db.update(task["id"], status="failed")
+    retried = client.post(f"/api/v1/tasks/{task['id']}/retry", json={}).json()
+    assert retried["allow_invalid_tls"] is True
+
+    client.app.state.manager.db.update(task["id"], status="failed")
+    replaced = client.post(
+        f"/api/v1/tasks/{task['id']}/retry",
+        json={"source": {"url": "https://example.net/replacement.mp4"}},
+    ).json()
+    assert replaced["allow_invalid_tls"] is True
+
+    client.app.state.manager.db.update(task["id"], status="failed")
+    sensitive = client.post(
+        f"/api/v1/tasks/{task['id']}/retry",
+        json={
+            "source": {"url": "https://example.net/private.mp4"},
+            "context": {
+                "cookies": [
+                    {
+                        "name": "session",
+                        "value": "secret",
+                        "domain": "example.net",
+                        "host_only": True,
+                    }
+                ]
+            },
+        },
+    ).json()
+    assert sensitive["allow_invalid_tls"] is False
+
+
+def test_invalid_tls_default_depends_on_sensitive_session(client):
+    def create_task(suffix, **values):
+        return client.post(
+            "/api/v1/tasks",
+            json={
+                "request_id": str(uuid.uuid4()),
+                "source": {"url": f"https://example.com/{suffix}.mp4"},
+                **values,
+            },
+        ).json()
+
+    assert create_task("public")["allow_invalid_tls"] is True
+    context = {
+        "requests": [
+            {"url": "https://example.com/private.mp4", "headers": {"authorization": "Bearer secret"}}
+        ]
+    }
+    assert create_task("private", context=context)["allow_invalid_tls"] is False
+    marked = client.post(
+        "/api/v1/tasks",
+        json={
+            "request_id": str(uuid.uuid4()),
+            "source": {"url": "https://example.com/marked.mp4", "requires_session": True},
+        },
+    ).json()
+    assert marked["allow_invalid_tls"] is False
+    assert create_task("strict", allow_invalid_tls=False)["allow_invalid_tls"] is False
+    assert create_task("override", context=context, allow_invalid_tls=True)["allow_invalid_tls"] is True
+
+
+def test_certificate_errors_have_a_specific_action():
+    for error in [
+        "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate",
+        "certificate has expired",
+        "hostname mismatch",
+    ]:
+        assert classify_error(error) == "TLS_CERTIFICATE_ERROR"
+
+
+def test_existing_database_migrates_invalid_tls_option_to_disabled(tmp_path):
+    data_dir = tmp_path / "legacy-data"
+    data_dir.mkdir()
+    engine = create_engine("sqlite:///" + (data_dir / "ergou.sqlite3").as_posix())
+    migration = AlembicConfig()
+    migration.set_main_option("script_location", str(Path(db_module.__file__).parent / "migrations"))
+    with engine.begin() as connection:
+        migration.attributes["connection"] = connection
+        command.upgrade(migration, "0002")
+        connection.exec_driver_sql(
+            """
+            INSERT INTO download_tasks
+              (id, request_id, title, source_json, status, quality, downloaded_bytes,
+               target_dir, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-task",
+                "legacy-request",
+                "Legacy",
+                json.dumps({"url": "https://example.com/video.mp4"}),
+                "failed",
+                "best",
+                0,
+                str(tmp_path),
+                now(),
+                now(),
+            ),
+        )
+    engine.dispose()
+
+    database = Database(data_dir)
+    try:
+        assert database.view(database.get("legacy-task")).allow_invalid_tls is False
+    finally:
+        database.engine.dispose()
+
+
+def test_delete_terminal_task_states(client, tmp_path):
+    for status in ("failed", "canceled", "interrupted"):
+        task_id = f"delete-{status}"
+        with Session(client.app.state.manager.db.engine) as session:
+            session.add(
+                Task(
+                    id=task_id,
+                    request_id=f"delete-request-{status}",
+                    title=status,
+                    source_json=json.dumps({"url": "https://example.com/video.mp4"}),
+                    status=status,
+                    quality="best",
+                    downloaded_bytes=0,
+                    target_dir=str(tmp_path),
+                    created_at=now(),
+                    updated_at=now(),
+                )
+            )
+            session.commit()
+        assert client.delete(f"/api/v1/tasks/{task_id}").json() == {"ok": True}
+        assert client.get(f"/api/v1/tasks/{task_id}").status_code == 404
 
 
 def test_source_and_path_validation(client):

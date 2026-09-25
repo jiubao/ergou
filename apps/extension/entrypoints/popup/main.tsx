@@ -46,6 +46,7 @@ function Popup() {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [resolution, setResolution] = useState<Resolution | null>(null);
   const [format, setFormat] = useState('');
+  const [allowInvalidTls, setAllowInvalidTls] = useState(true);
   const [retryTasks, setRetryTasks] = useState<Task[]>([]);
   const [retryId, setRetryId] = useState('');
   const prepared = useRef<{ source: Source; context: SessionContext } | null>(null);
@@ -107,9 +108,14 @@ function Popup() {
     handle(async () => {
       const p = candidate?.id === c.id && prepared.current ? prepared.current : await prepare(c);
       const selectedFormat = candidate?.id === c.id ? format : '';
-      const submissionKey = `${c.id}:${selectedFormat}`;
+      const useInvalidTls = candidate?.id === c.id ? allowInvalidTls : undefined;
+      const submissionKey = `${c.id}:${selectedFormat}:${useInvalidTls ?? 'auto'}`;
       let task: Task;
-      if (retryId) task = await api<Task>('retry', p, retryId);
+      const body = {
+        ...p,
+        ...(useInvalidTls === undefined ? {} : { allow_invalid_tls: useInvalidTls }),
+      };
+      if (retryId) task = await api<Task>('retry', body, retryId);
       else {
         let requestId = requestIds.current.get(submissionKey);
         if (!requestId) {
@@ -117,7 +123,7 @@ function Popup() {
           requestIds.current.set(submissionKey, requestId);
         }
         task = await api<Task>('create', {
-          ...p,
+          ...body,
           request_id: requestId,
           format_id: selectedFormat || undefined,
         });
@@ -127,16 +133,23 @@ function Popup() {
       setCandidate(null);
       setResolution(null);
       setFormat('');
+      setAllowInvalidTls(true);
       prepared.current = null;
       setRetryId('');
     });
   const inspect = async (c: Candidate) =>
     handle(async () => {
+      const sameCandidate = candidate?.id === c.id;
       setCandidate(c);
       setFormat('');
       setResolution(null);
       prepared.current = await prepare(c);
-      let r = await api<Resolution>('resolve', prepared.current);
+      const useInvalidTls = sameCandidate ? allowInvalidTls : !prepared.current.source.requires_session;
+      setAllowInvalidTls(useInvalidTls);
+      let r = await api<Resolution>('resolve', {
+        ...prepared.current,
+        allow_invalid_tls: useInvalidTls,
+      });
       setResolution(r);
       while (r.status === 'resolving' && alive.current) {
         await new Promise((resolve) => setTimeout(resolve, 750));
@@ -292,6 +305,7 @@ function Popup() {
               onClick={() => {
                 setCandidate(null);
                 setResolution(null);
+                setAllowInvalidTls(true);
               }}
               aria-label="关闭解析结果"
             >
@@ -316,6 +330,28 @@ function Popup() {
               </select>
             </label>
           ) : null}
+          <label className="tls-option">
+            <span>
+              <input
+                type="checkbox"
+                checked={allowInvalidTls}
+                disabled={busy}
+                onChange={(e) => {
+                  setAllowInvalidTls(e.target.checked);
+                  setResolution(null);
+                  setFormat('');
+                }}
+              />
+              允许无效 HTTPS 证书
+            </span>
+            <small>仅用于当前任务，包含关联媒体站点；开启后无法验证服务器身份。</small>
+          </label>
+          {(!resolution || resolution.status === 'failed') && (
+            <button className="secondary" disabled={busy} onClick={() => inspect(candidate)}>
+              <RefreshCw size={13} />
+              使用当前选项重新解析
+            </button>
+          )}
           {resolution?.media?.entries?.map((entry, i) => (
             <button
               className="entry"
@@ -326,6 +362,7 @@ function Popup() {
                   const task = await api<Task>('create', {
                     source: entry,
                     context: prepared.current?.context,
+                    allow_invalid_tls: allowInvalidTls,
                     request_id: crypto.randomUUID(),
                   });
                   setNotice(`已提交：${task.title}`);

@@ -1,8 +1,13 @@
 ERRORS = {
     "TASK_NOT_RETRYABLE": ("此任务当前不能重试", "仅失败、取消或中断的任务可以重试"),
+    "TASK_DELETE_FAILED": ("无法删除任务文件", "关闭正在使用该文件的程序，或取消同时删除文件后重试"),
     "TOO_MANY_RESOLUTIONS": ("正在解析的视频过多", "请等待已有解析完成后再试"),
     "AUTH_REQUIRED": ("登录已失效，或资源需要新的授权信息", "返回原网页播放视频，再通过插件更新任务来源"),
     "SOURCE_EXPIRED": ("视频地址已过期或无法访问", "返回原网页重新识别，再更新任务来源"),
+    "TLS_CERTIFICATE_ERROR": (
+        "HTTPS 证书验证失败",
+        "确认来源可信后，可为当前任务启用“允许无效 HTTPS 证书”再重试",
+    ),
     "UNSUPPORTED": ("暂时无法解析此视频来源", "播放视频后重新识别，或选择另一个资源"),
     "DRM_UNSUPPORTED": ("此资源包含不支持的加密保护", "选择未加密的视频来源"),
     "LIVE_UNSUPPORTED": ("第一版暂不支持直播录制", "请选择已结束的点播视频"),
@@ -24,6 +29,22 @@ def error_info(code):
 
 def classify_error(error):
     text = str(error).lower()
+    if any(
+        marker in text
+        for marker in [
+            "certificate_verify_failed",
+            "certificateverifyerror",
+            "certificate verify failed",
+            "certificate has expired",
+            "certificate is not yet valid",
+            "self signed certificate",
+            "self-signed certificate",
+            "unable to get local issuer certificate",
+            "hostname mismatch",
+            "doesn't match",
+        ]
+    ):
+        return "TLS_CERTIFICATE_ERROR"
     for code in sorted(ERRORS, key=len, reverse=True):
         if code.lower() in text:
             return code

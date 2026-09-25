@@ -101,7 +101,8 @@ export interface paths {
         get: operations["task_api_v1_tasks__task_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Task */
+        delete: operations["delete_task_api_v1_tasks__task_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -227,6 +228,8 @@ export interface components {
         CreateTask: {
             source: components["schemas"]["Source"];
             context?: components["schemas"]["SessionContext"] | null;
+            /** Allow Invalid Tls */
+            allow_invalid_tls?: boolean | null;
             /** Request Id */
             request_id: string;
             /** Format Id */
@@ -302,6 +305,8 @@ export interface components {
         ResolveRequest: {
             source: components["schemas"]["Source"];
             context?: components["schemas"]["SessionContext"] | null;
+            /** Allow Invalid Tls */
+            allow_invalid_tls?: boolean | null;
         };
         /** ResolvedMedia */
         ResolvedMedia: {
@@ -320,6 +325,8 @@ export interface components {
         RetryTask: {
             source?: components["schemas"]["Source"] | null;
             context?: components["schemas"]["SessionContext"] | null;
+            /** Allow Invalid Tls */
+            allow_invalid_tls?: boolean | null;
         };
         /** SessionContext */
         SessionContext: {
@@ -394,6 +401,11 @@ export interface components {
             quality: string;
             /** Format Id */
             format_id: string | null;
+            /**
+             * Allow Invalid Tls
+             * @default false
+             */
+            allow_invalid_tls: boolean;
             /**
              * Height
              * @default null
@@ -653,6 +665,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_task_api_v1_tasks__task_id__delete: {
+        parameters: {
+            query?: {
+                delete_file?: boolean;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

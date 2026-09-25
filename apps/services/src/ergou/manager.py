@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import shutil
 import time
 import uuid
 
@@ -17,6 +18,23 @@ from .schemas import ErrorInfo, Resolution, ResolvedMedia
 
 log = logging.getLogger("ergou")
 TERMINAL = {"completed", "failed", "canceled", "interrupted"}
+
+
+def has_sensitive_session(source, context):
+    return bool(
+        source.requires_session
+        or (
+            context
+            and (
+                context.cookies
+                or any("authorization" in request.headers for request in context.requests)
+            )
+        )
+    )
+
+
+def effective_invalid_tls(value, source, context):
+    return value if value is not None else not has_sensitive_session(source, context)
 
 
 class TaskError(Exception):
@@ -91,6 +109,9 @@ class Manager:
             settings = self.db.settings()
             task_id = str(uuid.uuid4())
             source = request.source.model_dump()
+            allow_invalid_tls = effective_invalid_tls(
+                request.allow_invalid_tls, request.source, request.context
+            )
             if request.context and (
                 request.context.cookies
                 or any("authorization" in context.headers for context in request.context.requests)
@@ -105,6 +126,7 @@ class Manager:
                     status="queued",
                     quality=request.quality or settings["quality"],
                     format_id=request.format_id,
+                    allow_invalid_tls=allow_invalid_tls,
                     downloaded_bytes=0,
                     target_dir=settings["download_dir"],
                     created_at=now(),
@@ -133,6 +155,39 @@ class Manager:
         self.wakeup.set()
         return self.get(task_id)
 
+    async def delete(self, task_id, delete_file=False):
+        row = self.db.get(task_id)
+        if row is None:
+            raise KeyError(task_id)
+        if row.status not in TERMINAL:
+            await self.cancel(task_id)
+        elif job := self.running.get(task_id):
+            job.cancel()
+            await asyncio.gather(job, return_exceptions=True)
+
+        row = self.db.get(task_id)
+        work_root = (self.config.data_dir / "work").resolve()
+        work = (work_root / task_id).resolve()
+        if work.parent != work_root:
+            raise TaskError("TASK_DELETE_FAILED")
+        try:
+            if work.exists():
+                shutil.rmtree(work)
+            if delete_file and row.output_path:
+                output = Path(row.output_path)
+                if output.exists():
+                    output.unlink()
+        except OSError as exc:
+            log.warning("task=%s delete_error=%s", task_id, type(exc).__name__)
+            raise TaskError("TASK_DELETE_FAILED") from None
+
+        self.contexts.pop(task_id, None)
+        self.progress.pop(task_id, None)
+        if not self.db.delete(task_id):
+            raise KeyError(task_id)
+        self.wakeup.set()
+        return {"ok": True}
+
     def retry(self, task_id, request):
         row = self.db.get(task_id)
         if row is None:
@@ -140,6 +195,13 @@ class Manager:
         if row.status not in {"failed", "canceled", "interrupted"}:
             raise TaskError("TASK_NOT_RETRYABLE")
         source = request.source.model_dump() if request.source else json.loads(row.source_json)
+        allow_invalid_tls = (
+            effective_invalid_tls(request.allow_invalid_tls, request.source, request.context)
+            if request.source
+            else request.allow_invalid_tls
+            if request.allow_invalid_tls is not None
+            else row.allow_invalid_tls
+        )
         if request.context and (
             request.context.cookies
             or any("authorization" in context.headers for context in request.context.requests)
@@ -154,6 +216,7 @@ class Manager:
             task_id,
             status="queued",
             source_json=json.dumps(source),
+            allow_invalid_tls=allow_invalid_tls,
             error_json=None,
             downloaded_bytes=0,
             total_bytes=None,
@@ -188,6 +251,9 @@ class Manager:
                             "action": "resolve",
                             "source": request.source.model_dump(),
                             "context": request.context.model_dump() if request.context else {},
+                            "allow_invalid_tls": effective_invalid_tls(
+                                request.allow_invalid_tls, request.source, request.context
+                            ),
                             "ffmpeg_dir": self.config.ffmpeg_dir,
                         }
                     )
@@ -246,7 +312,7 @@ class Manager:
             if not self.config.binary("ffmpeg") or not self.config.binary("ffprobe"):
                 raise TaskError("DEPENDENCY_MISSING")
             fingerprint = hashlib.sha256(
-                (source["url"] + str(row.format_id) + row.quality).encode()
+                (source["url"] + str(row.format_id) + row.quality + str(row.allow_invalid_tls)).encode()
             ).hexdigest()[:16]
             work = self.config.data_dir / "work" / task_id / fingerprint
             self.db.update(task_id, status="resolving")
@@ -258,6 +324,7 @@ class Manager:
                     "context": self.contexts.get(task_id, {}),
                     "quality": row.quality,
                     "format_id": row.format_id,
+                    "allow_invalid_tls": row.allow_invalid_tls,
                     "work_dir": str(work),
                     "ffmpeg_dir": self.config.ffmpeg_dir,
                     "ffprobe": self.config.binary("ffprobe"),

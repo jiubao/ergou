@@ -51,23 +51,86 @@ test('web connects, downloads a video and retains history after reload', async (
   await page.getByRole('button', { name: '偏好设置', exact: true }).click();
   await expect(page.getByLabel('默认清晰度')).toHaveValue('720');
   await page.getByRole('button', { name: '下载管理', exact: true }).click();
+  const taskResponse = await context.request.get(`${SERVICE}/api/v1/tasks?limit=50`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  const downloadedTask = (await taskResponse.json()).items.find(
+    (item: { source: { url: string } }) => item.source.url === `${MEDIA}/sample.mp4`,
+  );
+  expect(downloadedTask).toBeTruthy();
+  await expect(page.getByRole('button', { name: '任务详情' }).locator('svg')).toHaveClass(/lucide-eye/);
   fs.mkdirSync('.local/screenshots', { recursive: true });
   await page.screenshot({ path: '.local/screenshots/web-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 700, height: 1000 });
   await page.screenshot({ path: '.local/screenshots/web-narrow.png', fullPage: true });
+  await page.getByRole('button', { name: '删除任务' }).click();
+  await expect(page.getByRole('dialog', { name: '删除任务' })).toContainText(downloadedTask.title);
+  await expect(page.getByLabel('同时删除视频文件')).not.toBeChecked();
+  await page.getByRole('button', { name: '确认删除' }).click();
+  await expect(page.getByRole('article')).toHaveCount(0);
+  expect(fs.existsSync(downloadedTask.output_path)).toBe(true);
   expect(errors).toEqual([]);
   await page.close();
 });
 
 test('web resolution permits quality selection before downloading HLS', async () => {
   const page = await context.newPage();
+  const sourceUrl = `${MEDIA}/multi.m3u8?tls-option-browser-test=1`;
   await page.goto(SERVICE);
   await page.getByRole('button', { name: '新建下载', exact: true }).click();
-  await page.getByLabel('视频地址').fill(`${MEDIA}/multi.m3u8`);
+  await page.getByLabel('视频地址').fill(sourceUrl);
   await page.getByRole('button', { name: '解析清晰度', exact: true }).click();
   await expect(page.getByRole('combobox', { name: '清晰度', exact: true })).toBeVisible();
+  await page.getByLabel('允许无效 HTTPS 证书').check();
   await page.getByRole('button', { name: '开始下载', exact: true }).click();
-  await expect(page.getByRole('article').first()).toContainText('已完成');
+  await expect
+    .poll(async () => {
+      const response = await context.request.get(`${SERVICE}/api/v1/tasks?limit=50`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      });
+      const task = (await response.json()).items.find(
+        (item: { source: { url: string } }) => item.source.url === sourceUrl,
+      );
+      return { status: task?.status, allowInvalidTls: task?.allow_invalid_tls };
+    })
+    .toEqual({ status: 'completed', allowInvalidTls: true });
+  await page.reload();
+  await page.getByRole('article').first().getByRole('button').first().click();
+  await expect(page.getByRole('dialog')).toContainText('HTTPS 证书兼容');
+  await expect(page.getByRole('dialog')).toContainText('已开启');
+  const response = await context.request.get(`${SERVICE}/api/v1/tasks?limit=50`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  const downloadedTask = (await response.json()).items.find(
+    (item: { source: { url: string } }) => item.source.url === sourceUrl,
+  );
+  await page.getByRole('button', { name: '关闭' }).click();
+  await page.getByRole('button', { name: '删除任务' }).click();
+  await page.getByLabel('同时删除视频文件').check();
+  await page.getByRole('button', { name: '确认删除' }).click();
+  await expect(page.getByRole('article')).toHaveCount(0);
+  expect(fs.existsSync(downloadedTask.output_path)).toBe(false);
+  await page.close();
+});
+
+test('web deletion stops an active task before removing it', async () => {
+  const page = await context.newPage();
+  const sourceUrl = `${MEDIA}/slow.mp4?active-delete-browser-test=1`;
+  await page.goto(SERVICE);
+  await page.getByRole('button', { name: '新建下载', exact: true }).click();
+  await page.getByLabel('视频地址').fill(sourceUrl);
+  await page.getByRole('button', { name: '开始下载', exact: true }).click();
+  await expect(page.getByRole('article').first()).toBeVisible();
+  await page.getByRole('button', { name: '删除任务' }).click();
+  await expect(page.getByRole('dialog', { name: '删除任务' })).toContainText('会先停止下载');
+  await page.getByRole('button', { name: '确认删除' }).click();
+  await expect(page.getByRole('article')).toHaveCount(0);
+  const response = await context.request.get(`${SERVICE}/api/v1/tasks?limit=50`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  expect(
+    (await response.json()).items.some((item: { source: { url: string } }) => item.source.url === sourceUrl),
+  ).toBe(false);
   await page.close();
 });
 
@@ -132,7 +195,10 @@ test('extension discovers direct, dynamic, frame and manifest resources, then su
   const card = popup
     .locator('article')
     .filter({ has: popup.getByRole('heading', { name: 'MP4 完整下载验证' }) });
-  await card.getByRole('button', { name: '下载', exact: true }).click();
+  await card.getByRole('button', { name: '选择清晰度', exact: true }).click();
+  await expect(popup.getByLabel('允许无效 HTTPS 证书')).toBeChecked();
+  await expect(popup.getByRole('button', { name: '下载所选画质' })).toBeVisible();
+  await popup.getByRole('button', { name: '下载所选画质' }).click();
   await expect(popup.locator('.notice')).toContainText('已提交');
   await expect
     .poll(async () => {
@@ -140,9 +206,10 @@ test('extension discovers direct, dynamic, frame and manifest resources, then su
         `${SERVICE}/api/v1/tasks?search=${encodeURIComponent('MP4 完整下载验证')}`,
         { headers: { Authorization: `Bearer ${TOKEN}` } },
       );
-      return (await response.json()).items[0]?.status;
+      const task = (await response.json()).items[0];
+      return { status: task?.status, allowInvalidTls: task?.allow_invalid_tls };
     })
-    .toBe('completed');
+    .toEqual({ status: 'completed', allowInvalidTls: true });
   await popup.setViewportSize({ width: 390, height: 650 });
   await popup.screenshot({ path: '.local/screenshots/extension.png', fullPage: true });
   await popup.close();
@@ -188,9 +255,13 @@ test('extension forwards only the selected task session to download a protected 
         },
       );
       const task = (await response.json()).items[0];
-      return { status: task?.status, session: task?.source.requires_session };
+      return {
+        status: task?.status,
+        session: task?.source.requires_session,
+        allowInvalidTls: task?.allow_invalid_tls,
+      };
     })
-    .toEqual({ status: 'completed', session: true });
+    .toEqual({ status: 'completed', session: true, allowInvalidTls: false });
   await popup.close();
   await watch.close();
   await context.clearCookies();

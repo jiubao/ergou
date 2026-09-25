@@ -67,6 +67,7 @@ class Source(StrictModel):
 class ResolveRequest(StrictModel):
     source: Source
     context: SessionContext | None = None
+    allow_invalid_tls: bool | None = None
 
 
 class FormatOption(BaseModel):
@@ -107,6 +108,7 @@ class CreateTask(ResolveRequest):
 class RetryTask(StrictModel):
     source: Source | None = None
     context: SessionContext | None = None
+    allow_invalid_tls: bool | None = None
 
 
 class TaskState(StrEnum):
@@ -127,6 +129,7 @@ class TaskView(BaseModel):
     status: TaskState
     quality: str
     format_id: str | None
+    allow_invalid_tls: bool = False
     height: int | None = None
     downloaded_bytes: int = 0
     total_bytes: int | None = None

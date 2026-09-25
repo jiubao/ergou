@@ -6,10 +6,10 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   Clock3,
   Download,
   ExternalLink,
+  Eye,
   Film,
   FolderOpen,
   History,
@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Unplug,
   X,
+  Trash2,
 } from 'lucide-react';
 import {
   ApiClient,
@@ -69,6 +70,10 @@ export function App() {
   const [error, setError] = useState('');
   const [newTask, setNewTask] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
+  const [detailTls, setDetailTls] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const [deleteFile, setDeleteFile] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const client = useMemo(() => new ApiClient(location.origin, token), [token]);
   const query = useMemo(() => {
@@ -161,6 +166,27 @@ export function App() {
       await reload();
     } catch (e) {
       setError(message(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const openDelete = (task: Task) => {
+    setDetail(null);
+    setDeleteTarget(task);
+    setDeleteFile(false);
+    setDeleteError('');
+  };
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setBusy(deleteTarget.id);
+    setDeleteError('');
+    try {
+      await client.deleteTask(deleteTarget.id, deleteFile);
+      setDeleteTarget(null);
+      setDeleteFile(false);
+      await reload();
+    } catch (e) {
+      setDeleteError(message(e));
     } finally {
       setBusy(null);
     }
@@ -336,7 +362,11 @@ export function App() {
                     task={task}
                     busy={busy === task.id}
                     onAction={(op) => void action(task, op)}
-                    onDetail={() => setDetail(task)}
+                    onDetail={() => {
+                      setDetail(task);
+                      setDetailTls(task.allow_invalid_tls);
+                    }}
+                    onDelete={() => openDelete(task)}
                   />
                 ))
               ) : (
@@ -407,6 +437,7 @@ export function App() {
           {[
             ['状态', labels[detail.status]],
             ['清晰度', taskQuality(detail)],
+            ['HTTPS 证书兼容', detail.allow_invalid_tls ? '已开启' : '关闭'],
             ['已下载', bytes(detail.downloaded_bytes)],
             ['文件路径', detail.output_path || '下载完成后显示'],
             ['创建时间', new Date(detail.created_at).toLocaleString()],
@@ -423,6 +454,41 @@ export function App() {
               {detail.error.action}
             </div>
           )}
+          {canRetry(detail.status) && !detail.source.requires_session && (
+            <>
+              <label className={s.checkOption}>
+                <span>
+                  <input
+                    type="checkbox"
+                    checked={detailTls}
+                    onChange={(e) => setDetailTls(e.target.checked)}
+                  />
+                  允许无效 HTTPS 证书
+                </span>
+                <small>仅用于当前任务，包含关联媒体站点；开启后无法验证服务器身份。</small>
+              </label>
+              <div className={s.modalActions}>
+                <button
+                  className={s.primary}
+                  disabled={busy === detail.id}
+                  onClick={() => {
+                    setBusy(detail.id);
+                    void client
+                      .retry(detail.id, { allow_invalid_tls: detailTls })
+                      .then((task) => {
+                        setDetail(task);
+                        void reload();
+                      })
+                      .catch((e) => setError(message(e)))
+                      .finally(() => setBusy(null));
+                  }}
+                >
+                  <RotateCcw size={14} />
+                  使用当前选项重试
+                </button>
+              </div>
+            </>
+          )}
           <div className={s.modalActions}>
             <a
               className={s.secondary}
@@ -433,10 +499,65 @@ export function App() {
               返回原网页
               <ExternalLink size={13} />
             </a>
+            <button className={s.danger} onClick={() => openDelete(detail)}>
+              <Trash2 size={13} />
+              删除任务
+            </button>
           </div>
           {canRetry(detail.status) && detail.source.requires_session && (
             <p className={s.subtitle}>在原网页播放后，打开插件，选择「更新已有任务」并选择此任务。</p>
           )}
+        </Modal>
+      )}
+      {deleteTarget && (
+        <Modal
+          title="删除任务"
+          close={() => {
+            if (busy !== deleteTarget.id) setDeleteTarget(null);
+          }}
+        >
+          <p className={s.subtitle} style={{ marginTop: 0 }}>
+            确定删除“{deleteTarget.title}”吗？任务记录和临时数据将被永久删除。
+          </p>
+          {isActive(deleteTarget.status) && (
+            <div className={s.errorText}>该任务仍在进行中，删除时会先停止下载。</div>
+          )}
+          {deleteTarget.output_path && (
+            <label className={s.checkOption}>
+              <span>
+                <input
+                  type="checkbox"
+                  checked={deleteFile}
+                  onChange={(e) => setDeleteFile(e.target.checked)}
+                  disabled={busy === deleteTarget.id}
+                />
+                同时删除视频文件
+              </span>
+              <small>默认只删除任务记录，保留下载目录中的视频。</small>
+            </label>
+          )}
+          {deleteError && (
+            <p className={s.errorText} role="alert">
+              {deleteError}
+            </p>
+          )}
+          <div className={s.modalActions}>
+            <button
+              className={s.secondary}
+              disabled={busy === deleteTarget.id}
+              onClick={() => setDeleteTarget(null)}
+            >
+              取消
+            </button>
+            <button
+              className={s.danger}
+              disabled={busy === deleteTarget.id}
+              onClick={() => void confirmDelete()}
+            >
+              <Trash2 size={14} />
+              确认删除
+            </button>
+          </div>
         </Modal>
       )}
     </div>
@@ -502,11 +623,13 @@ function TaskCard({
   busy,
   onAction,
   onDetail,
+  onDelete,
 }: {
   task: Task;
   busy: boolean;
   onAction: (op: string) => void;
   onDetail: () => void;
+  onDelete: () => void;
 }) {
   const active = isActive(task.status);
   const percent = task.total_bytes ? Math.min(99, (task.downloaded_bytes / task.total_bytes) * 100) : null;
@@ -605,7 +728,10 @@ function TaskCard({
           </>
         )}
         <button className={s.iconButton} title="任务详情" aria-label="任务详情" onClick={onDetail}>
-          <CircleHelp size={15} />
+          <Eye size={15} />
+        </button>
+        <button className={s.iconButton} title="删除任务" aria-label="删除任务" onClick={onDelete}>
+          <Trash2 size={15} />
         </button>
       </div>
     </article>
@@ -645,6 +771,7 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
   const [source, setSource] = useState<Source | null>(null);
   const [result, setResult] = useState<Resolution | null>(null);
   const [format, setFormat] = useState('');
+  const [allowInvalidTls, setAllowInvalidTls] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const alive = useRef(true);
@@ -664,7 +791,7 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
     setBusy(true);
     setError('');
     try {
-      let r = await client.resolve(getSource());
+      let r = await client.resolve(getSource(), undefined, allowInvalidTls);
       setResult(r);
       while (r.status === 'resolving' && alive.current) {
         await new Promise((r) => setTimeout(r, 750));
@@ -672,7 +799,7 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
         r = await client.resolution(r.id);
         setResult(r);
       }
-      if (r.error) throw new Error(r.error.message);
+      if (r.error) throw new Error(`${r.error.message}。${r.error.action}`);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -687,6 +814,7 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
         source: getSource(),
         request_id: requestId.current,
         format_id: format || undefined,
+        allow_invalid_tls: allowInvalidTls,
       });
       done();
     } catch (e) {
@@ -711,6 +839,7 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
             setSource(null);
             setResult(null);
             setFormat('');
+            setAllowInvalidTls(true);
             requestId.current = crypto.randomUUID();
           }}
           disabled={busy}
@@ -726,6 +855,8 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
             setUrl(entry.url);
             setResult(null);
             setFormat('');
+            setAllowInvalidTls(true);
+            requestId.current = crypto.randomUUID();
           }}
         >
           {entry.title || entry.url} <ArrowUpRight size={13} />
@@ -744,6 +875,22 @@ function NewTask({ client, close, done }: { client: ApiClient; close: () => void
           </select>
         </label>
       )}
+      <label className={s.checkOption}>
+        <span>
+          <input
+            type="checkbox"
+            checked={allowInvalidTls}
+            onChange={(e) => {
+              setAllowInvalidTls(e.target.checked);
+              setResult(null);
+              setFormat('');
+              requestId.current = crypto.randomUUID();
+            }}
+          />
+          允许无效 HTTPS 证书
+        </span>
+        <small>仅用于当前任务，包含关联媒体站点；开启后无法验证服务器身份。</small>
+      </label>
       {error && (
         <p className={s.errorText} role="alert">
           {error}
