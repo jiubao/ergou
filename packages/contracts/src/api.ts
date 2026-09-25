@@ -159,6 +159,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/{task_id}/playback/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Playback */
+        post: operations["prepare_playback_api_v1_tasks__task_id__playback_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/playback/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Playback */
+        post: operations["cancel_playback_api_v1_tasks__task_id__playback_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/{task_id}/open": {
         parameters: {
             query?: never;
@@ -241,6 +275,15 @@ export interface components {
             /** Expires */
             expires?: number | null;
         };
+        /** CreatePlayback */
+        CreatePlayback: {
+            /**
+             * Source
+             * @default preferred
+             * @enum {string}
+             */
+            source: "preferred" | "original";
+        };
         /** CreateTask */
         CreateTask: {
             source: components["schemas"]["Source"];
@@ -312,6 +355,17 @@ export interface components {
             url: string;
             /** Expires At */
             expires_at: string;
+            /** Playback Identity */
+            playback_identity: string;
+        };
+        /** PreparePlayback */
+        PreparePlayback: {
+            /**
+             * Mode
+             * @default recommended
+             * @enum {string}
+             */
+            mode: "recommended" | "transcode";
         };
         /** Resolution */
         Resolution: {
@@ -468,6 +522,39 @@ export interface components {
             output_path: string | null;
             /** @default null */
             error: components["schemas"]["ErrorInfo"] | null;
+            /**
+             * Playback Status
+             * @default pending
+             * @enum {string}
+             */
+            playback_status: "pending" | "checking" | "ready_original" | "remuxing" | "transcode_required" | "transcode_queued" | "transcoding" | "ready_compatible" | "canceled" | "interrupted" | "failed";
+            /**
+             * Playback Method
+             * @default null
+             */
+            playback_method: ("original" | "remux" | "transcode") | null;
+            /**
+             * Playback Progress
+             * @default null
+             */
+            playback_progress: number | null;
+            /**
+             * Playback Speed
+             * @default null
+             */
+            playback_speed: number | null;
+            /**
+             * Playback Eta
+             * @default null
+             */
+            playback_eta: number | null;
+            /** @default null */
+            playback_error: components["schemas"]["ErrorInfo"] | null;
+            /**
+             * Playback Identity
+             * @default null
+             */
+            playback_identity: string | null;
             /** Created At */
             created_at: string;
             /** Updated At */
@@ -816,7 +903,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreatePlayback"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -825,6 +916,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlaybackSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_playback_api_v1_tasks__task_id__playback_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreparePlayback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_playback_api_v1_tasks__task_id__playback_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskView"];
                 };
             };
             /** @description Validation Error */

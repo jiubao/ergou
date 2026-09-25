@@ -156,6 +156,8 @@ def test_existing_database_migrates_invalid_tls_option_to_enabled(tmp_path):
         task = database.view(database.get("legacy-task"))
         assert task.allow_invalid_tls is True
         assert task.tls_certificate_status == "unchecked"
+        assert task.playback_status == "pending"
+        assert task.playback_identity is None
     finally:
         database.engine.dispose()
 

@@ -86,6 +86,26 @@ def build_media(root):
         "libopus",
         root / "sample.webm",
     )
+    run("-i", root / "sample.mp4", "-c", "copy", root / "remux.mkv")
+    run("-i", root / "sample.mp4", "-c:v", "mpeg4", "-c:a", "pcm_s16le", root / "incompatible.mkv")
+    run("-f", "lavfi", "-i", "testsrc=size=321x181:rate=24", "-t", "1", "-c:v", "ffv1", root / "odd.mkv")
+    run(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=320x180:rate=24",
+        "-t",
+        "1",
+        "-pix_fmt",
+        "yuv420p10le",
+        "-c:v",
+        "libx265",
+        "-preset",
+        "ultrafast",
+        "-x265-params",
+        "colorprim=9:transfer=16:colormatrix=9:log-level=error",
+        root / "hdr.mkv",
+    )
     for name, mapping in [("hls", []), ("video", ["-map", "0:v"]), ("audio", ["-map", "0:a"])]:
         directory = root / name
         directory.mkdir(exist_ok=True)

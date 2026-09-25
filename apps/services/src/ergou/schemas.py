@@ -122,6 +122,29 @@ class TaskState(StrEnum):
     INTERRUPTED = "interrupted"
 
 
+PlaybackState = Literal[
+    "pending",
+    "checking",
+    "ready_original",
+    "remuxing",
+    "transcode_required",
+    "transcode_queued",
+    "transcoding",
+    "ready_compatible",
+    "canceled",
+    "interrupted",
+    "failed",
+]
+
+
+class PreparePlayback(StrictModel):
+    mode: Literal["recommended", "transcode"] = "recommended"
+
+
+class CreatePlayback(StrictModel):
+    source: Literal["preferred", "original"] = "preferred"
+
+
 class TaskView(BaseModel):
     id: str
     title: str
@@ -140,6 +163,13 @@ class TaskView(BaseModel):
     eta: float | None = None
     output_path: str | None = None
     error: ErrorInfo | None = None
+    playback_status: PlaybackState = "pending"
+    playback_method: Literal["original", "remux", "transcode"] | None = None
+    playback_progress: float | None = None
+    playback_speed: float | None = None
+    playback_eta: float | None = None
+    playback_error: ErrorInfo | None = None
+    playback_identity: str | None = None
     created_at: str
     updated_at: str
 
@@ -152,6 +182,7 @@ class TaskPage(BaseModel):
 class PlaybackSession(BaseModel):
     url: str
     expires_at: str
+    playback_identity: str
 
 
 class Settings(StrictModel):

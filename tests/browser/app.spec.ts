@@ -1,6 +1,7 @@
 import { test, expect, chromium, type BrowserContext } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import type { Task } from '@ergou/contracts';
 
 const SERVICE = 'http://127.0.0.1:17894';
 const MEDIA = 'http://127.0.0.1:17895';
@@ -25,6 +26,16 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   await context?.close();
+});
+
+test.beforeEach(async ({}, info) => {
+  if (info.title === 'web connects, downloads a video and retains history after reload') return;
+  await context.addInitScript(
+    ({ service, token }) => {
+      if (location.origin === service) localStorage.setItem('ergou.token', token);
+    },
+    { service: SERVICE, token: TOKEN },
+  );
 });
 
 test('web connects, downloads a video and retains history after reload', async () => {
@@ -174,14 +185,24 @@ test('web plays a local video, restores progress and explains unsupported media'
   await expect(page.getByRole('dialog').getByRole('button', { name: '播放视频' })).toBeVisible();
   await page.getByRole('button', { name: '关闭' }).click();
 
+  await page.goto('about:blank');
   fs.writeFileSync(completed.output_path, 'not a supported media file');
+  await page.goto(SERVICE);
   await card.getByRole('button', { name: '播放视频' }).click();
+  await expect(page.getByRole('alert')).toContainText('原视频文件已发生变化');
+  await page.goto(`${SERVICE}/#/play/${taskId}?source=original`);
   await expect(page.getByRole('alert')).toContainText('当前浏览器无法播放此文件');
   await expect(page.getByRole('button', { name: '系统播放器打开' })).toBeVisible();
-  await context.request.delete(`${SERVICE}/api/v1/tasks/${taskId}?delete_file=true`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
-  });
   await page.close();
+  await expect
+    .poll(async () =>
+      (
+        await context.request.delete(`${SERVICE}/api/v1/tasks/${taskId}?delete_file=true`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      ).status(),
+    )
+    .toBe(200);
 });
 
 test('web plays a downloaded WebM file natively', async () => {
@@ -214,10 +235,11 @@ test('web plays a downloaded WebM file natively', async () => {
   const player = page.getByLabel('播放 WebM 本地播放验证');
   await expect.poll(() => player.evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThan(0);
   expect(await player.evaluate((video: HTMLVideoElement) => video.error)).toBeNull();
-  await context.request.delete(`${SERVICE}/api/v1/tasks/${taskId}?delete_file=true`, {
+  await page.close();
+  const removed = await context.request.delete(`${SERVICE}/api/v1/tasks/${taskId}?delete_file=true`, {
     headers: { Authorization: `Bearer ${TOKEN}` },
   });
-  await page.close();
+  expect(removed.ok()).toBe(true);
 });
 
 test('web deletion stops an active task before removing it', async () => {
@@ -372,4 +394,168 @@ test('extension forwards only the selected task session to download a protected 
   await popup.close();
   await watch.close();
   await context.clearCookies();
+});
+
+async function downloadForPlayback(file: string, title: string): Promise<Task> {
+  const response = await context.request.post(`${SERVICE}/api/v1/tasks`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    data: { request_id: crypto.randomUUID(), source: { url: `${MEDIA}/${file}`, kind: 'direct', title } },
+  });
+  expect(response.ok()).toBe(true);
+  const { id } = await response.json();
+  let task: Task;
+  await expect
+    .poll(
+      async () => {
+        const result = await context.request.get(`${SERVICE}/api/v1/tasks/${id}`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        });
+        task = await result.json();
+        return ['ready_original', 'ready_compatible', 'transcode_required'].includes(task.playback_status);
+      },
+      { timeout: 45_000 },
+    )
+    .toBe(true);
+  return task!;
+}
+
+test('automatic remux preserves original, plays MP4 ranges and removes internal copy on deletion', async () => {
+  const task = await downloadForPlayback('remux.mkv', '自动换封装验证');
+  expect(task.playback_status).toBe('ready_compatible');
+  expect(task.playback_method).toBe('remux');
+  const page = await context.newPage();
+  await page.goto(SERVICE);
+  const card = page.getByRole('article').filter({ hasText: task.title });
+  await expect(card).toContainText('无损换封装');
+  await card.getByRole('button', { name: '播放视频', exact: true }).click();
+  const player = page.getByLabel(`播放 ${task.title}`);
+  await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThan(0);
+  await player.evaluate(async (v: HTMLVideoElement) => {
+    await v.play();
+    v.currentTime = 3;
+  });
+  await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThanOrEqual(3);
+  const response = await context.request.get(`${SERVICE}/api/v1/playback/${task.id}`, {
+    headers: { Range: 'bytes=0-99' },
+  });
+  expect(response.status()).toBe(206);
+  expect(response.headers()['content-type']).toBe('video/mp4');
+  await page.getByRole('button', { name: '返回任务列表' }).click();
+  await card.getByRole('button', { name: '删除任务' }).click();
+  await expect(page.getByLabel('同时删除视频文件')).not.toBeChecked();
+  await page.getByRole('button', { name: '确认删除' }).click();
+  await expect(card).toHaveCount(0);
+  expect(fs.existsSync(task.output_path!)).toBe(true);
+  expect(fs.existsSync(path.join('.local/browser-tests/data/playback', task.id))).toBe(false);
+  await page.close();
+});
+
+test('incompatible video requires confirmation then automatically loads the real transcode', async () => {
+  const task = await downloadForPlayback('incompatible.mkv', '手动兼容转码验证');
+  expect(task.playback_status).toBe('transcode_required');
+  const page = await context.newPage();
+  await page.goto(`${SERVICE}/#/play/${task.id}`);
+  await expect(page.getByRole('button', { name: '尝试直接播放' })).toBeVisible();
+  await page.getByRole('button', { name: '生成兼容播放版本', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '生成兼容播放版本' })).toContainText('保留原视频');
+  await page.getByRole('button', { name: '暂不生成' }).click();
+  expect(fs.existsSync(path.join('.local/browser-tests/data/playback', task.id))).toBe(false);
+  await page.getByRole('button', { name: '生成兼容播放版本', exact: true }).click();
+  await page.getByRole('button', { name: '开始生成' }).click();
+  await expect(page.getByText('兼容版本已就绪 · 转码', { exact: true })).toBeVisible({ timeout: 60_000 });
+  const player = page.getByLabel(`播放 ${task.title}`);
+  await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThan(0);
+  await player.evaluate((v: HTMLVideoElement) => v.play());
+  await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(0);
+  await page.screenshot({ path: '.local/screenshots/playback-compatible.png', fullPage: true });
+  await page.close();
+  const removed = await context.request.delete(`${SERVICE}/api/v1/tasks/${task.id}?delete_file=true`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  expect(removed.ok()).toBe(true);
+  expect(fs.existsSync(task.output_path!)).toBe(false);
+});
+
+test('playback controls show checking, delayed remux progress, queue, cancel and retry states', async () => {
+  const task = await downloadForPlayback('sample.mp4', '播放准备状态验证');
+  const page = await context.newPage();
+  let current: Task = { ...task, playback_status: 'checking' };
+  const modes: string[] = [];
+  await page.route(`**/api/v1/tasks/${task.id}`, (route) => route.fulfill({ json: current }));
+  await page.route(`**/api/v1/tasks/${task.id}/playback/cancel`, (route) => {
+    current = { ...current, playback_status: 'canceled' };
+    return route.fulfill({ json: current });
+  });
+  await page.route(`**/api/v1/tasks/${task.id}/playback/prepare`, (route) => {
+    const mode = route.request().postDataJSON().mode;
+    modes.push(mode);
+    current = {
+      ...current,
+      playback_status: mode === 'transcode' ? 'transcode_queued' : 'checking',
+      playback_error: null,
+    };
+    return route.fulfill({ json: current });
+  });
+  await page.goto(`${SERVICE}/#/play/${task.id}`);
+  await expect(page.getByRole('button', { name: '检查格式…' })).toBeDisabled();
+  current = {
+    ...current,
+    playback_status: 'remuxing',
+    playback_progress: 45,
+    playback_speed: 3,
+    playback_eta: 8,
+  };
+  await expect(page.getByRole('progressbar', { name: '播放处理进度' })).toHaveAttribute(
+    'aria-valuenow',
+    '45',
+  );
+  await expect(page.getByText('3.0× · 剩余 8 秒')).toBeVisible();
+  await page.getByRole('button', { name: '取消准备' }).click();
+  await expect(page.getByText('播放准备已取消', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '重新准备' }).click();
+  expect(modes).toEqual(['recommended']);
+  current = { ...current, playback_status: 'transcode_required' };
+  await page.getByRole('button', { name: '生成兼容播放版本' }).click();
+  await page.getByRole('button', { name: '开始生成' }).click();
+  await expect(page.getByRole('button', { name: '等待转码…' })).toBeDisabled();
+  expect(modes).toEqual(['recommended', 'transcode']);
+  current = {
+    ...current,
+    playback_status: 'transcoding',
+    playback_progress: null,
+    playback_eta: null,
+    playback_speed: null,
+  };
+  await expect(page.getByRole('button', { name: '转码中' })).toBeDisabled();
+  await expect(page.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+  current = { ...current, playback_progress: 32, playback_speed: 1.2, playback_eta: 11 };
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '32');
+  current = {
+    ...current,
+    playback_status: 'failed',
+    playback_error: { code: 'DISK_ERROR', message: '磁盘空间不足', action: '清理后重试' },
+  };
+  await expect(page.getByRole('alert')).toContainText('磁盘空间不足');
+  await page.getByRole('button', { name: '重新准备' }).click();
+  current = { ...current, playback_status: 'interrupted' };
+  await expect(page.getByText('播放准备已中断', { exact: true })).toBeVisible();
+  current = { ...task };
+  await expect(page.getByLabel(`播放 ${task.title}`)).toBeVisible();
+  await page.close();
+  await context.request.delete(`${SERVICE}/api/v1/tasks/${task.id}?delete_file=true`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+});
+
+test('player explains missing source files', async () => {
+  const task = await downloadForPlayback('sample.mp4', '文件缺失验证');
+  fs.unlinkSync(task.output_path!);
+  const page = await context.newPage();
+  await page.goto(`${SERVICE}/#/play/${task.id}`);
+  await expect(page.getByRole('alert')).toContainText('本地视频文件不存在');
+  await expect(page.getByRole('button', { name: '系统播放器打开' })).toBeVisible();
+  await page.close();
+  await context.request.delete(`${SERVICE}/api/v1/tasks/${task.id}`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
 });

@@ -692,6 +692,20 @@
     padding: 18px;
   }
 }
+.playbackControls {
+  margin-top: 12px;
+  min-width: 0;
+}
+.playbackButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.playbackButtons button {
+  font-size: 12px;
+  padding: 7px 10px;
+}
 @media (max-width: 760px) {
   .sidebar {
     width: 68px;

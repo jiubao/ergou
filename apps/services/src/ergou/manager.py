@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 from yt_dlp.utils import sanitize_filename
 
 from .db import Database, Task, now
-from .errors import error_info
+from .errors import TaskError, error_info
+from .playback import PlaybackManager, READY
+from .playback_worker import fingerprint
 from .process import WorkerProcess
 from .schemas import ErrorInfo, Resolution, ResolvedMedia
 from .tls import certificate_status
@@ -24,12 +26,6 @@ TERMINAL = {"completed", "failed", "canceled", "interrupted"}
 
 def effective_invalid_tls(value):
     return value if value is not None else True
-
-
-class TaskError(Exception):
-    def __init__(self, code, status=409):
-        self.code = code
-        self.status = status
 
 
 class Manager:
@@ -47,9 +43,11 @@ class Manager:
         self.subscribers = set()
         self.stopping = False
         self.wakeup = asyncio.Event()
+        self.playback = PlaybackManager(self)
 
     async def start(self):
         self.db.recover()
+        self.playback.start()
         self.scheduler = asyncio.create_task(self.schedule())
 
     async def close(self):
@@ -60,6 +58,7 @@ class Manager:
         for job in jobs:
             job.cancel()
         await asyncio.gather(*jobs, return_exceptions=True)
+        await self.playback.close()
         self.db.recover()
         self.contexts.clear()
         self.playback_sessions.clear()
@@ -76,8 +75,26 @@ class Manager:
             raise TaskError("PLAYBACK_FILE_MISSING", 404)
         return path
 
-    def create_playback_session(self, task_id):
-        self.playable_file(task_id)
+    def create_playback_session(self, task_id, source="preferred"):
+        original = self.playable_file(task_id)
+        row = self.db.get(task_id)
+        path = original
+        original_identity = fingerprint(original)
+        if source == "preferred":
+            if row.playback_status not in READY:
+                raise TaskError(
+                    "PLAYBACK_TRANSCODE_REQUIRED"
+                    if row.playback_status == "transcode_required"
+                    else "PLAYBACK_PROCESSING"
+                )
+            if original_identity != row.playback_fingerprint:
+                raise TaskError("PLAYBACK_SOURCE_CHANGED")
+            if row.playback_status == "ready_compatible":
+                path = Path(row.playback_path)
+                if not path.is_file():
+                    raise TaskError("PLAYBACK_FILE_MISSING", 404)
+            if fingerprint(path) != row.playback_identity:
+                raise TaskError("PLAYBACK_SOURCE_CHANGED")
         stamp = time.time()
         self.playback_sessions = {
             token: session
@@ -86,8 +103,15 @@ class Manager:
         }
         token = secrets.token_urlsafe(32)
         expires_at = stamp + 24 * 60 * 60
-        self.playback_sessions[token] = {"task_id": task_id, "expires_at": expires_at}
-        return token, expires_at
+        identity = fingerprint(path)
+        self.playback_sessions[token] = {
+            "task_id": task_id,
+            "expires_at": expires_at,
+            "path": str(path),
+            "identity": identity,
+            "original_identity": original_identity,
+        }
+        return token, expires_at, identity
 
     def playback_file(self, task_id, token):
         stamp = time.time()
@@ -96,7 +120,14 @@ class Manager:
             if session and session["expires_at"] <= stamp:
                 self.playback_sessions.pop(token, None)
             raise TaskError("PLAYBACK_UNAUTHORIZED", 401)
-        return self.playable_file(task_id)
+        original = self.playable_file(task_id)
+        path = Path(session["path"])
+        if not path.is_file():
+            raise TaskError("PLAYBACK_FILE_MISSING", 404)
+        if fingerprint(original) != session["original_identity"] or fingerprint(path) != session["identity"]:
+            self.revoke_playback(task_id)
+            raise TaskError("PLAYBACK_SOURCE_CHANGED")
+        return path
 
     def revoke_playback(self, task_id):
         self.playback_sessions = {
@@ -139,7 +170,9 @@ class Manager:
         row = self.db.get(task_id)
         if row is None:
             raise KeyError(task_id)
-        return self.db.view(row, self.progress.get(task_id))
+        return self.db.view(
+            row, {**self.progress.get(task_id, {}), **self.playback.progress.get(task_id, {})}
+        )
 
     def listing(self, offset=0, limit=50, status=None, search=None, group=None):
         with Session(self.db.engine) as session:
@@ -154,7 +187,15 @@ class Manager:
                 query = query.where(Task.status.in_(TERMINAL))
             count = session.scalar(select(func.count()).select_from(query.subquery()))
             rows = session.scalars(query.order_by(Task.created_at.desc()).offset(offset).limit(limit))
-            return {"items": [self.db.view(row, self.progress.get(row.id)) for row in rows], "total": count}
+            return {
+                "items": [
+                    self.db.view(
+                        row, {**self.progress.get(row.id, {}), **self.playback.progress.get(row.id, {})}
+                    )
+                    for row in rows
+                ],
+                "total": count,
+            }
 
     def publish(self, task_id):
         event = {"type": "task", "task": self.get(task_id).model_dump(mode="json")}
@@ -217,6 +258,10 @@ class Manager:
         return self.get(task_id)
 
     async def delete(self, task_id, delete_file=False):
+        async with self.playback.lock:
+            return await self._delete(task_id, delete_file)
+
+    async def _delete(self, task_id, delete_file):
         row = self.db.get(task_id)
         if diagnostic := self.tls_jobs.pop(task_id, None):
             diagnostic.cancel()
@@ -225,16 +270,18 @@ class Manager:
             raise KeyError(task_id)
         if row.status not in TERMINAL:
             await self.cancel(task_id)
-        elif job := self.running.get(task_id):
+        if job := self.running.get(task_id):
             job.cancel()
             await asyncio.gather(job, return_exceptions=True)
 
+        await self.playback.cancel(task_id, publish=False)
         row = self.db.get(task_id)
         work_root = (self.config.data_dir / "work").resolve()
         work = (work_root / task_id).resolve()
         if work.parent != work_root:
             raise TaskError("TASK_DELETE_FAILED")
         try:
+            self.playback.cleanup(task_id)
             if work.exists():
                 shutil.rmtree(work)
             if delete_file and row.output_path:
@@ -259,6 +306,11 @@ class Manager:
             raise KeyError(task_id)
         if row.status not in {"failed", "canceled", "interrupted"}:
             raise TaskError("TASK_NOT_RETRYABLE")
+        self.revoke_playback(task_id)
+        try:
+            self.playback.cleanup(task_id)
+        except OSError:
+            raise TaskError("TASK_DELETE_FAILED") from None
         source = request.source.model_dump() if request.source else json.loads(row.source_json)
         allow_invalid_tls = (
             effective_invalid_tls(request.allow_invalid_tls)
@@ -289,6 +341,13 @@ class Manager:
             total_bytes=None,
             output_path=None,
             height=None,
+            playback_status="pending",
+            playback_method=None,
+            playback_path=None,
+            playback_fingerprint=None,
+            playback_identity=None,
+            playback_media_json=None,
+            playback_error_json=None,
         )
         self.start_tls_diagnostic(task_id, source["url"])
         self.publish(task_id)
@@ -457,6 +516,7 @@ class Manager:
                         total_bytes=event["size"],
                         height=event.get("height"),
                     )
+                    self.playback.enqueue(task_id)
                 self.publish(task_id)
             await wrapper.process.wait()
             if self.db.get(task_id).status not in TERMINAL:

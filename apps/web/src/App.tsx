@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft,
   ArrowDownToLine,
   ArrowUpRight,
   Check,
@@ -17,7 +16,6 @@ import {
   Link2,
   Loader2,
   Plus,
-  Play,
   RotateCcw,
   Search,
   Settings2,
@@ -40,6 +38,8 @@ import {
   type TaskPage,
 } from '@ergou/contracts';
 import s from './App.module.css';
+import { PlayerPage } from './PlayerPage';
+import { PlaybackControls, playbackActive } from './PlaybackControls';
 
 const savedToken = () => localStorage.getItem('ergou.token') || '';
 const host = (url: string) => {
@@ -68,7 +68,7 @@ const timeLabel = (seconds?: number | null) =>
       ? `剩余 ${Math.ceil(seconds)} 秒`
       : `剩余 ${Math.ceil(seconds / 60)} 分钟`;
 const playerIdFromHash = () => {
-  const match = location.hash.match(/^#\/play\/([^/?#]+)$/);
+  const match = location.hash.match(/^#\/play\/([^/?#]+)(?:\?.*)?$/);
   if (!match) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -96,6 +96,7 @@ export function App() {
   const [deleteError, setDeleteError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(playerIdFromHash);
+  const [playerSource, setPlayerSource] = useState(location.hash.includes('source=original'));
   const client = useMemo(() => new ApiClient(location.origin, token), [token]);
   const query = useMemo(() => {
     const q = new URLSearchParams({ offset: String(page * 20), limit: '20' });
@@ -125,7 +126,10 @@ export function App() {
   }, [client, query]);
   const reloadRef = useRef(reload);
   useEffect(() => {
-    const update = () => setPlayerId(playerIdFromHash());
+    const update = () => {
+      setPlayerId(playerIdFromHash());
+      setPlayerSource(location.hash.includes('source=original'));
+    };
     addEventListener('hashchange', update);
     return () => removeEventListener('hashchange', update);
   }, []);
@@ -222,9 +226,9 @@ export function App() {
     setToken('');
     setError('');
   };
-  const openPlayer = (task: Task) => {
+  const openPlayer = (task: Task, source: 'preferred' | 'original' = 'preferred') => {
     setDetail(null);
-    location.hash = `/play/${encodeURIComponent(task.id)}`;
+    location.hash = `/play/${encodeURIComponent(task.id)}${source === 'original' ? '?source=original' : ''}`;
   };
   const leavePlayer = () => {
     history.replaceState(null, '', location.pathname + location.search);
@@ -339,7 +343,12 @@ export function App() {
           <div className={s.alert}>本地服务暂未连接。请确认启动脚本仍在运行；连接恢复后将自动更新任务。</div>
         )}
         {playerId ? (
-          <PlayerPage client={client} taskId={playerId} back={leavePlayer} />
+          <PlayerPage
+            key={`${playerId}:${playerSource}`}
+            client={client}
+            taskId={playerId}
+            back={leavePlayer}
+          />
         ) : view === 'settings' ? (
           <SettingsPanel client={client} health={health} onError={setError} />
         ) : (
@@ -412,7 +421,10 @@ export function App() {
                       setDetail(task);
                       setDetailTls(task.allow_invalid_tls);
                     }}
-                    onPlay={() => openPlayer(task)}
+                    client={client}
+                    onError={setError}
+                    onTask={() => void reload()}
+                    onPlay={(source) => openPlayer(task, source)}
                     onDelete={() => openDelete(task)}
                   />
                 ))
@@ -537,13 +549,14 @@ export function App() {
               </div>
             </>
           )}
+          <PlaybackControls
+            task={detail}
+            client={client}
+            onPlay={(source) => openPlayer(detail, source)}
+            onTask={setDetail}
+            onError={setError}
+          />
           <div className={s.modalActions}>
-            {detail.status === 'completed' && (
-              <button className={s.primary} onClick={() => openPlayer(detail)}>
-                <Play size={14} fill="currentColor" />
-                播放视频
-              </button>
-            )}
             <a
               className={s.secondary}
               href={detail.source.page_url || detail.source.url}
@@ -573,10 +586,13 @@ export function App() {
           }}
         >
           <p className={s.subtitle} style={{ marginTop: 0 }}>
-            确定删除“{deleteTarget.title}”吗？任务记录和临时数据将被永久删除。
+            确定删除“{deleteTarget.title}”吗？任务记录、临时数据和内部播放副本将被永久删除。
           </p>
           {isActive(deleteTarget.status) && (
             <div className={s.errorText}>该任务仍在进行中，删除时会先停止下载。</div>
+          )}
+          {deleteTarget.status === 'completed' && playbackActive(deleteTarget) && (
+            <div className={s.errorText}>正在准备播放版本，删除时会先停止换封装或转码。</div>
           )}
           {deleteTarget.output_path && (
             <label className={s.checkOption}>
@@ -674,193 +690,6 @@ function Connect({ onConnect }: { onConnect: (token: string) => void }) {
   );
 }
 
-type SavedPlayback = {
-  path: string;
-  size: number | null;
-  currentTime: number;
-};
-
-function PlayerPage({ client, taskId, back }: { client: ApiClient; taskId: string; back: () => void }) {
-  const [task, setTask] = useState<Task | null>(null);
-  const [mediaUrl, setMediaUrl] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [mediaFailed, setMediaFailed] = useState(false);
-  const video = useRef<HTMLVideoElement>(null);
-  const retried = useRef(false);
-  const lastSaved = useRef(0);
-  const progressKey = `ergou.playback.${taskId}`;
-
-  const requestMedia = useCallback(async () => {
-    const session = await client.createPlaybackSession(taskId);
-    const url = new URL(session.url, client.base);
-    url.searchParams.set('session', session.expires_at);
-    setMediaUrl(url.href);
-  }, [client, taskId]);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError('');
-    setMediaFailed(false);
-    retried.current = false;
-    void client
-      .task(taskId)
-      .then(async (next) => {
-        if (next.status !== 'completed' || !next.output_path) throw new Error('视频尚未下载完成');
-        if (!active) return;
-        setTask(next);
-        await requestMedia();
-      })
-      .catch((reason) => {
-        if (active) setError(message(reason));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, requestMedia, taskId]);
-
-  const saveProgress = useCallback(() => {
-    const element = video.current;
-    if (!task || !element || !Number.isFinite(element.currentTime)) return;
-    if (element.ended) {
-      localStorage.removeItem(progressKey);
-      return;
-    }
-    if (element.currentTime >= 5) {
-      const value: SavedPlayback = {
-        path: task.output_path || '',
-        size: task.total_bytes,
-        currentTime: element.currentTime,
-      };
-      localStorage.setItem(progressKey, JSON.stringify(value));
-    }
-  }, [progressKey, task]);
-
-  useEffect(() => {
-    const save = () => saveProgress();
-    addEventListener('pagehide', save);
-    return () => {
-      saveProgress();
-      removeEventListener('pagehide', save);
-    };
-  }, [saveProgress]);
-
-  const fileAction = async (operation: 'open' | 'reveal') => {
-    if (!task) return;
-    try {
-      await client.fileAction(task.id, operation);
-    } catch (reason) {
-      setError(message(reason));
-    }
-  };
-
-  return (
-    <section className={s.playerPage} aria-label="视频播放页">
-      <div className={s.playerToolbar}>
-        <button className={s.secondary} onClick={back}>
-          <ArrowLeft size={15} />
-          返回任务列表
-        </button>
-        {task && (
-          <div className={s.playerActions}>
-            <button className={s.secondary} onClick={() => void fileAction('open')}>
-              <ExternalLink size={14} />
-              系统播放器打开
-            </button>
-            <button className={s.secondary} onClick={() => void fileAction('reveal')}>
-              <FolderOpen size={14} />
-              打开文件夹
-            </button>
-          </div>
-        )}
-      </div>
-      {task && (
-        <div className={s.playerTitle}>
-          <h2>{task.title}</h2>
-          <p>
-            {host(task.source.page_url || task.source.url)} · {taskQuality(task)} · {bytes(task.total_bytes)}
-          </p>
-        </div>
-      )}
-      <div className={s.playerFrame}>
-        {loading && (
-          <div className={s.playerPlaceholder}>
-            <Loader2 className={s.spin} size={24} />
-            正在准备本地视频…
-          </div>
-        )}
-        {!loading && mediaUrl && (
-          <video
-            key={mediaUrl}
-            ref={video}
-            aria-label={task ? `播放 ${task.title}` : '本地视频播放器'}
-            controls
-            playsInline
-            preload="metadata"
-            src={mediaUrl}
-            onLoadedMetadata={(event) => {
-              setMediaFailed(false);
-              try {
-                const saved = JSON.parse(localStorage.getItem(progressKey) || 'null') as SavedPlayback | null;
-                const element = event.currentTarget;
-                if (
-                  saved &&
-                  task &&
-                  saved.path === task.output_path &&
-                  saved.size === task.total_bytes &&
-                  saved.currentTime >= 5 &&
-                  saved.currentTime < element.duration - 10
-                ) {
-                  element.currentTime = saved.currentTime;
-                }
-              } catch {
-                localStorage.removeItem(progressKey);
-              }
-            }}
-            onTimeUpdate={() => {
-              if (Date.now() - lastSaved.current >= 5000) {
-                lastSaved.current = Date.now();
-                saveProgress();
-              }
-            }}
-            onPause={saveProgress}
-            onEnded={() => localStorage.removeItem(progressKey)}
-            onError={() => {
-              if (!retried.current) {
-                retried.current = true;
-                void requestMedia().catch((reason) => setError(message(reason)));
-              } else {
-                setMediaFailed(true);
-              }
-            }}
-          />
-        )}
-        {!loading && !mediaUrl && (
-          <div className={s.playerPlaceholder}>
-            <Film size={30} />
-            无法载入本地视频
-          </div>
-        )}
-      </div>
-      {mediaFailed && (
-        <div className={s.alert} role="alert">
-          当前浏览器无法播放此文件的封装或编码。你可以使用系统播放器打开。
-        </div>
-      )}
-      {error && (
-        <div className={s.alert} role="alert">
-          {error}
-        </div>
-      )}
-      <p className={s.subtitle}>观看位置保存在当前浏览器中；播放结束后会自动清除。</p>
-    </section>
-  );
-}
-
 function TaskCard({
   task,
   busy,
@@ -868,12 +697,18 @@ function TaskCard({
   onDetail,
   onPlay,
   onDelete,
+  client,
+  onTask,
+  onError,
 }: {
+  client: ApiClient;
+  onTask: (task: Task) => void;
+  onError: (message: string) => void;
   task: Task;
   busy: boolean;
   onAction: (op: string) => void;
   onDetail: () => void;
-  onPlay: () => void;
+  onPlay: (source: 'preferred' | 'original') => void;
   onDelete: () => void;
 }) {
   const active = isActive(task.status);
@@ -923,6 +758,7 @@ function TaskCard({
           </>
         )}
         {task.error && <p className={s.errorText}>{task.error.message}</p>}
+        <PlaybackControls task={task} client={client} onPlay={onPlay} onTask={onTask} onError={onError} />
       </div>
       <span className={`${s.badge} ${['failed', 'interrupted'].includes(task.status) ? s.errorBadge : ''}`}>
         {task.status === 'completed' && <Check size={11} />} {labels[task.status]}
@@ -952,9 +788,6 @@ function TaskCard({
         )}
         {task.status === 'completed' && (
           <>
-            <button className={s.iconButton} title="播放视频" aria-label="播放视频" onClick={onPlay}>
-              <Play size={15} fill="currentColor" />
-            </button>
             <button
               className={s.iconButton}
               disabled={busy}

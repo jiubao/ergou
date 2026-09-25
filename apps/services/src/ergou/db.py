@@ -37,6 +37,13 @@ class Task(Base):
     output_path = Column(Text)
     target_dir = Column(Text, nullable=False)
     error_json = Column(Text)
+    playback_status = Column(String, nullable=False, default="pending")
+    playback_method = Column(String)
+    playback_path = Column(Text)
+    playback_fingerprint = Column(String)
+    playback_identity = Column(String)
+    playback_media_json = Column(Text)
+    playback_error_json = Column(Text)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 
@@ -110,6 +117,13 @@ class Database:
             ):
                 row.status = "interrupted"
                 row.updated_at = now()
+            for row in session.scalars(
+                select(Task).where(
+                    Task.playback_status.in_(["checking", "remuxing", "transcode_queued", "transcoding"])
+                )
+            ):
+                row.playback_status = "interrupted"
+                row.updated_at = now()
             session.commit()
 
     @staticmethod
@@ -131,6 +145,10 @@ class Database:
             total_bytes=row.total_bytes,
             output_path=row.output_path,
             error=stored_error,
+            playback_status=row.playback_status,
+            playback_method=row.playback_method,
+            playback_identity=row.playback_identity,
+            playback_error=json.loads(row.playback_error_json) if row.playback_error_json else None,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

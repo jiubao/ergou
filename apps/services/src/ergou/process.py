@@ -13,7 +13,7 @@ class WorkerProcess:
         self.job = job
 
     @classmethod
-    async def start(cls, payload):
+    async def start(cls, payload, module="ergou.worker"):
         import json
 
         options = (
@@ -22,7 +22,7 @@ class WorkerProcess:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
-            "ergou.worker",
+            module,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
@@ -62,9 +62,17 @@ class WorkerProcess:
         if self.job is not None:
             import win32job
 
-            win32job.TerminateJobObject(self.job, 1)
-            self.job.Close()
-            self.job = None
+            try:
+                win32job.TerminateJobObject(self.job, 1)
+                # Termination is asynchronous. Wait for descendants too, before callers unlink media.
+                async with asyncio.timeout(10):
+                    while win32job.QueryInformationJobObject(
+                        self.job, win32job.JobObjectBasicAccountingInformation
+                    )["ActiveProcesses"]:
+                        await asyncio.sleep(0.01)
+            finally:
+                self.job.Close()
+                self.job = None
         elif self.process.returncode is None:
             if os.name == "nt":
                 self.process.kill()

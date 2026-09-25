@@ -80,8 +80,14 @@ export class ApiClient {
   cancel(id: string) {
     return this.request<Task>(`/tasks/${encodeURIComponent(id)}/cancel`, 'POST');
   }
-  createPlaybackSession(id: string) {
-    return this.request<PlaybackSession>(`/tasks/${encodeURIComponent(id)}/playback`, 'POST');
+  createPlaybackSession(id: string, source: 'preferred' | 'original' = 'preferred') {
+    return this.request<PlaybackSession>(`/tasks/${encodeURIComponent(id)}/playback`, 'POST', { source });
+  }
+  preparePlayback(id: string, mode: 'recommended' | 'transcode' = 'recommended') {
+    return this.request<Task>(`/tasks/${encodeURIComponent(id)}/playback/prepare`, 'POST', { mode });
+  }
+  cancelPlayback(id: string) {
+    return this.request<Task>(`/tasks/${encodeURIComponent(id)}/playback/cancel`, 'POST');
   }
   retry(id: string, body: { source?: Source; context?: SessionContext; allow_invalid_tls?: boolean } = {}) {
     return this.request<Task>(`/tasks/${encodeURIComponent(id)}/retry`, 'POST', body);

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ergou.app import create_app
 from ergou.db import Task, now
+from ergou.playback_worker import fingerprint
 
 
 def add_task(client, tmp_path, task_id="playable", status="completed", suffix=".mp4", exists=True):
@@ -26,6 +27,9 @@ def add_task(client, tmp_path, task_id="playable", status="completed", suffix=".
                 total_bytes=len(content),
                 output_path=str(path) if status == "completed" else None,
                 target_dir=str(tmp_path),
+                playback_status="ready_original",
+                playback_fingerprint=fingerprint(path) if exists else None,
+                playback_identity=fingerprint(path) if exists else None,
                 created_at=now(),
                 updated_at=now(),
             )

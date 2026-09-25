@@ -1,4 +1,8 @@
 ERRORS = {
+    "PLAYBACK_PREPARATION_FAILED": ("播放版本生成失败", "可重新准备，或使用系统播放器打开原文件"),
+    "PLAYBACK_SOURCE_CHANGED": ("原视频文件已发生变化", "重新准备播放版本"),
+    "PLAYBACK_PROCESSING": ("正在准备播放版本", "请等待处理完成，或尝试直接播放原文件"),
+    "PLAYBACK_TRANSCODE_REQUIRED": ("需要生成兼容播放版本", "点击生成兼容播放版本，或尝试直接播放原文件"),
     "TASK_NOT_RETRYABLE": ("此任务当前不能重试", "仅失败、取消或中断的任务可以重试"),
     "TASK_DELETE_FAILED": ("无法删除任务文件", "关闭正在使用该文件的程序，或取消同时删除文件后重试"),
     "PLAYBACK_NOT_READY": ("视频尚未准备好", "请等待下载完成后再播放"),
@@ -23,6 +27,12 @@ ERRORS = {
     "WORKER_FAILED": ("下载进程异常退出", "重试任务，并检查服务依赖状态"),
     "SESSION_REQUIRED": ("此任务需要重新提供浏览器登录态", "返回原网页，通过插件更新此任务的来源"),
 }
+
+
+class TaskError(Exception):
+    def __init__(self, code, status=409):
+        self.code = code
+        self.status = status
 
 
 def error_info(code):

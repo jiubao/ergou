@@ -445,6 +445,18 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePlayback",
+                "default": {
+                  "source": "preferred"
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -452,6 +464,94 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PlaybackSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/playback/prepare": {
+      "post": {
+        "summary": "Prepare Playback",
+        "operationId": "prepare_playback_api_v1_tasks__task_id__playback_prepare_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreparePlayback"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/playback/cancel": {
+      "post": {
+        "summary": "Cancel Playback",
+        "operationId": "cancel_playback_api_v1_tasks__task_id__playback_cancel_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskView"
                 }
               }
             }
@@ -652,6 +752,22 @@
           "domain"
         ],
         "title": "Cookie"
+      },
+      "CreatePlayback": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "preferred",
+              "original"
+            ],
+            "title": "Source",
+            "default": "preferred"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CreatePlayback"
       },
       "CreateTask": {
         "properties": {
@@ -873,14 +989,35 @@
           "expires_at": {
             "type": "string",
             "title": "Expires At"
+          },
+          "playback_identity": {
+            "type": "string",
+            "title": "Playback Identity"
           }
         },
         "type": "object",
         "required": [
           "url",
-          "expires_at"
+          "expires_at",
+          "playback_identity"
         ],
         "title": "PlaybackSession"
+      },
+      "PreparePlayback": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "recommended",
+              "transcode"
+            ],
+            "title": "Mode",
+            "default": "recommended"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PreparePlayback"
       },
       "Resolution": {
         "properties": {
@@ -1316,6 +1453,100 @@
               }
             ],
             "default": null
+          },
+          "playback_status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "checking",
+              "ready_original",
+              "remuxing",
+              "transcode_required",
+              "transcode_queued",
+              "transcoding",
+              "ready_compatible",
+              "canceled",
+              "interrupted",
+              "failed"
+            ],
+            "title": "Playback Status",
+            "type": "string"
+          },
+          "playback_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "original",
+                  "remux",
+                  "transcode"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Playback Method"
+          },
+          "playback_progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Playback Progress"
+          },
+          "playback_speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Playback Speed"
+          },
+          "playback_eta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Playback Eta"
+          },
+          "playback_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "playback_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Playback Identity"
           },
           "created_at": {
             "title": "Created At",

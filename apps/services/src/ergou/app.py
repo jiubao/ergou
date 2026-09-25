@@ -23,6 +23,8 @@ from .schemas import (
     CreateTask,
     Health,
     PlaybackSession,
+    CreatePlayback,
+    PreparePlayback,
     Resolution,
     ResolveRequest,
     RetryTask,
@@ -151,8 +153,8 @@ def create_app(config=None):
         response_model=PlaybackSession,
         dependencies=auth,
     )
-    async def create_playback(task_id: str, response: Response):
-        token, expires_at = app.state.manager.create_playback_session(task_id)
+    async def create_playback(task_id: str, response: Response, request: CreatePlayback = CreatePlayback()):
+        token, expires_at, identity = app.state.manager.create_playback_session(task_id, request.source)
         response.set_cookie(
             "ergou_playback",
             token,
@@ -164,7 +166,18 @@ def create_app(config=None):
         return PlaybackSession(
             url=f"/api/v1/playback/{task_id}",
             expires_at=datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
+            playback_identity=identity,
         )
+
+    @app.post("/api/v1/tasks/{task_id}/playback/prepare", response_model=TaskView, dependencies=auth)
+    async def prepare_playback(task_id: str, request: PreparePlayback):
+        return await app.state.manager.playback.prepare(task_id, request.mode)
+
+    @app.post("/api/v1/tasks/{task_id}/playback/cancel", response_model=TaskView, dependencies=auth)
+    async def cancel_playback(task_id: str):
+        playback_manager = app.state.manager.playback
+        async with playback_manager.lock:
+            return await playback_manager.cancel(task_id)
 
     media_types = {
         ".mp4": "video/mp4",
